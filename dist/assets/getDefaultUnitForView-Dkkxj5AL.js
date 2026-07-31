@@ -1,0 +1,1 @@
+import{M as a,dz as s}from"./MapPage-BJqczGqk.js";function o(e){var i,l;const t="metric";if(e==null)return t;const r=e.map,n=(r&&"portalItem"in r?(i=r.portalItem)==null?void 0:i.portal:null)??a.getDefault();switch(((l=n.user)==null?void 0:l.units)??n.units){case t:return t;case"english":return"imperial"}return s(e.spatialReference)??t}export{o as e};
