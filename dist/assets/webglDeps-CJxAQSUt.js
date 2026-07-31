@@ -1,7 +1,0 @@
-import{o as g}from"./BufferObject-DAbrQ1Sj.js";import{m as F,s as O}from"./FramebufferObject-Ct5rxNhQ.js";import{s as c}from"./ProgramTemplate-DVxZB4j6.js";import{e as P,a as w}from"./ProgramTemplate-DVxZB4j6.js";import{db as C}from"./MapPage-BJqczGqk.js";import{h as S}from"./VertexArrayObject-CeoFo85E.js";import"./index-D-2rXIQn.js";import"./rotate-ccw-Dtygc1MB.js";import"./leaf-C0E8s7OC.js";import"./memoryEstimations-DYzMhPGm.js";import"./VertexAttributeLocations-BfZbt_DV.js";class h{constructor(e){this._rctx=e,this._store=new Map}dispose(){this._store.forEach(e=>e.dispose()),this._store.clear()}acquire(e,r,t,s){const n=e+r+JSON.stringify(Array.from(t.entries())),o=this._store.get(n);if(o!=null)return o.ref(),o;const i=new c(this._rctx,e,r,t,s);return i.ref(),this._store.set(n,i),i}get test(){}}function p(f){const{options:e,value:r}=f;return typeof e[r]=="number"}function b(f){let e="";for(const r in f){const t=f[r];if(typeof t=="boolean")t&&(e+=`#define ${r}
-`);else if(typeof t=="number")e+=`#define ${r} ${t.toFixed()}
-`;else if(typeof t=="object")if(p(t)){const{value:s,options:n,namespace:o}=t,i=o?`${o}_`:"";for(const a in n)e+=`#define ${i}${a} ${n[a].toFixed()}
-`;e+=`#define ${r} ${i}${s}
-`}else{const s=t.options;let n=0;for(const o in s)e+=`#define ${s[o]} ${(n++).toFixed()}
-`;e+=`#define ${r} ${s[t.value]}
-`}}return e}export{g as BufferObject,F as FramebufferObject,c as Program,h as ProgramCache,O as Renderbuffer,P as ShaderCompiler,C as Texture,S as VertexArrayObject,w as createProgram,b as glslifyDefineMap};
