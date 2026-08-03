@@ -31,7 +31,7 @@ const routePresets = [
     name: "养护巡检路线",
     season: "工作日",
     duration: "30 分钟",
-    description: "优先串联异常和需观察树木，辅助巡检人员进行现场复核。",
+    description: "优先串联异常和待观察树木，辅助巡检人员进行现场复核。",
     species: ["侧柏", "竹林", "松树"],
   },
 ];
