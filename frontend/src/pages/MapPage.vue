@@ -84,6 +84,13 @@ const onReset = () => resetMapFilters();
       </a-space>
     </section>
 
+    <!-- Citywide Statistics -->
+      <div class="city-stat-grid">
+        <div><strong>{{ stats.totalTrees.toLocaleString() }}</strong><span>树木入图</span></div>
+        <div><strong>{{ workOrders.length.toLocaleString() }}</strong><span>养护记录</span></div>
+        <div><strong>{{ trees.filter((tree) => tree.isAncient).length.toLocaleString() }}</strong><span>古树名木</span></div>
+        <div><strong>{{ stats.speciesCount.toLocaleString() }}</strong><span>树种数量</span></div>
+      </div>
 
  <!-- Split Actions -->
     <section class="home-section split-actions">
@@ -109,7 +116,7 @@ const onReset = () => resetMapFilters();
       </div>
     </section>
 
-    <!-- Citywide Statistics -->
+    
 
     <!-- Recent Activities -->
     <section class="home-section activity-section">
