@@ -1,57 +1,112 @@
 <script setup>
-import { ref, computed } from "vue";
+import { computed, ref } from "vue";
 import {
-  Building2, ClipboardList, MapPinned, ShieldCheck, Trees, UserRound
+  Building2, ClipboardList, LockKeyhole, MapPinned, Trees, UserRound
 } from "lucide-vue-next";
-import { roleLabels } from "../api/mockApi";
+import { message } from "ant-design-vue";
+import { demoAccounts, login, register } from "../api/authApi";
+import { organizations, roleLabels } from "../api/mockApi";
 
 const props = defineProps({
-  initialRole: { type: String, default: "admin" },
+  initialRole: { type: String, default: "inspector" },
 });
 
 const emit = defineEmits(["enter"]);
 
+const activeTab = ref("login");
+const isSubmitting = ref(false);
+
 const roleCards = [
-  { role: "visitor", title: "游客入口", description: "查看树木地图、上传照片、上报问题、浏览导览路线。" },
-  { role: "admin", title: "管理员入口", description: "维护树木档案、查看统计、派发工单、导出数据。" },
-  { role: "inspector", title: "巡检入口", description: "巡查树木状态、上报问题、复核养护处置效果。" },
-  { role: "maintenance", title: "养护入口", description: "查看分配工单、现场处置、上传反馈和照片。" },
+  { role: "visitor", title: "游客" },
+  { role: "inspector", title: "巡检人员" },
+  { role: "maintenance", title: "养护人员" },
 ];
 
-const organizations = [
-  { label: "大兴善寺管理处", value: "daxingshansi" },
-  { label: "西安市园林养护一组", value: "garden-team-1" },
-  { label: "古树名木专项组", value: "ancient-tree-team" },
-];
+const orgOptions = organizations.filter((item) => item.value !== "public");
+
+const loginForm = ref({
+  account: "inspector",
+  password: "123456",
+  role: props.initialRole,
+});
+
+const registerForm = ref({
+  account: "",
+  password: "",
+  confirmPassword: "",
+  role: "visitor",
+  organizationId: undefined,
+});
+
+const registerNeedsOrg = computed(() => registerForm.value.role !== "visitor");
 
 const roleIcon = (role) => {
   switch (role) {
     case "visitor": return UserRound;
-    case "admin": return ShieldCheck;
     case "inspector": return MapPinned;
     case "maintenance": return ClipboardList;
     default: return UserRound;
   }
 };
 
-const selectedRole = ref(props.initialRole);
-const selectedOrg = ref("daxingshansi");
+const submitLogin = async () => {
+  if (!loginForm.value.account || !loginForm.value.password || !loginForm.value.role) {
+    message.error("请填写账号、密码并选择角色");
+    return;
+  }
 
-const requiresOrg = computed(() => selectedRole.value !== "visitor");
+  isSubmitting.value = true;
+  try {
+    const user = await login(loginForm.value);
+    emit("enter", user);
+  } catch (error) {
+    message.error(error.message || "登录失败");
+  } finally {
+    isSubmitting.value = false;
+  }
+};
 
-const submit = () => {
-  const organization = organizations.find((item) => item.value === selectedOrg.value);
-  emit("enter", {
-    role: selectedRole.value,
-    organizationId: selectedOrg.value,
-    organizationName: organization?.label,
-  });
+const submitRegister = async () => {
+  if (!registerForm.value.account || !registerForm.value.password || !registerForm.value.role) {
+    message.error("请填写账号、密码并选择角色");
+    return;
+  }
+  if (registerForm.value.password !== registerForm.value.confirmPassword) {
+    message.error("两次输入的密码不一致");
+    return;
+  }
+  if (registerNeedsOrg.value && !registerForm.value.organizationId) {
+    message.error("养护人员和巡检人员注册时必须选择工作单位");
+    return;
+  }
+
+  isSubmitting.value = true;
+  try {
+    const user = await register(registerForm.value);
+    loginForm.value = {
+      account: user.account,
+      password: registerForm.value.password,
+      role: user.role,
+    };
+    registerForm.value = {
+      account: "",
+      password: "",
+      confirmPassword: "",
+      role: "visitor",
+      organizationId: undefined,
+    };
+    activeTab.value = "login";
+    message.success(user.approvalStatus === "pending" ? "账号已提交，内部角色需审核；当前 mock 环境可继续登录演示。" : "注册成功，请登录");
+  } catch (error) {
+    message.error(error.message || "注册失败");
+  } finally {
+    isSubmitting.value = false;
+  }
 };
 </script>
 
 <template>
   <main class="login-page">
-    <!-- Hero Section -->
     <section class="login-hero">
       <div class="login-brand">
         <div class="brand-mark login-brand-mark">
@@ -62,70 +117,102 @@ const submit = () => {
           <h1>西安城市树木信息服务平台</h1>
         </div>
       </div>
-      <p>面向公众导览、树木档案管理和养护工单协同的城市绿化服务平台。</p>
+      <p>面向城市树木档案、地图展示与养护协同的绿化服务平台。</p>
       <div class="login-metrics">
-        <div>
-          <strong>437</strong>
-          <span>采集树木</span>
-        </div>
-        <div>
-          <strong>4</strong>
-          <span>角色入口</span>
-        </div>
-        <div>
-          <strong>24h</strong>
-          <span>服务响应</span>
-        </div>
+        <div><strong>437</strong><span>采集树木</span></div>
       </div>
     </section>
 
-    <!-- Login Card -->
     <a-card class="login-card" :bordered="false">
       <div class="login-card-heading">
-        <a-tag color="green">身份入口</a-tag>
-        <h2>选择身份进入系统</h2>
-        <p>请选择与当前工作场景匹配的身份，进入对应的地图、导览和养护管理功能。</p>
+        <a-tag color="green">账号入口</a-tag>
+        <h2>登录或注册</h2>
       </div>
 
-      <a-form layout="vertical">
-        <a-form-item label="身份">
-          <a-radio-group v-model:value="selectedRole" class="role-card-group">
-            <a-radio-button
-              v-for="item in roleCards"
-              :key="item.role"
-              :value="item.role"
-              class="role-card-option"
+      <a-tabs v-model:active-key="activeTab">
+        <a-tab-pane key="login" tab="登录">
+          <a-form layout="vertical" @finish="submitLogin">
+            <a-form-item label="账号" required>
+              <a-input v-model:value="loginForm.account" placeholder="例如 inspector / maintenance / visitor">
+                <template #prefix><UserRound :size="15" /></template>
+              </a-input>
+            </a-form-item>
+            <a-form-item label="密码" required>
+              <a-input-password v-model:value="loginForm.password" placeholder="演示密码 123456">
+                <template #prefix><LockKeyhole :size="15" /></template>
+              </a-input-password>
+            </a-form-item>
+            <a-form-item label="登录角色" required>
+              <a-radio-group v-model:value="loginForm.role" class="role-card-group compact">
+                <a-radio-button v-for="item in roleCards" :key="item.role" :value="item.role" class="role-card-option">
+                  <div class="role-card-icon">
+                    <component :is="roleIcon(item.role)" :size="18" />
+                  </div>
+                  <div>
+                    <strong>{{ item.title }}</strong>
+                  </div>
+                </a-radio-button>
+              </a-radio-group>
+            </a-form-item>
+            <a-alert type="info" show-icon :message="`当前将以“${roleLabels[loginForm.role]}”身份进入`" />
+            <a-button class="submit-report" type="primary" size="large" html-type="submit" :loading="isSubmitting" @click="submitLogin">
+              登录
+            </a-button>
+          </a-form>
+
+          <div class="demo-account-list">
+            <span>演示账号：</span>
+            <button
+              v-for="account in demoAccounts"
+              :key="account.account"
+              type="button"
+              @click="loginForm = { account: account.account, password: account.password, role: account.role }"
             >
-              <div class="role-card-icon">
-                <component :is="roleIcon(item.role)" :size="18" />
-              </div>
-              <div>
-                <strong>{{ item.title }}</strong>
-                <span>{{ item.description }}</span>
-              </div>
-            </a-radio-button>
-          </a-radio-group>
-        </a-form-item>
+              {{ account.roleLabel }} {{ account.account }}
+            </button>
+          </div>
+        </a-tab-pane>
 
-        <a-form-item
-          v-if="requiresOrg"
-          label="工作单位"
-        >
-          <a-select
-            v-model:value="selectedOrg"
-            size="large"
-            :options="organizations"
-            placeholder="选择工作单位"
-          />
-        </a-form-item>
-
-        <a-space class="login-actions">
-          <a-button type="primary" size="large" @click="submit">
-            进入系统
-          </a-button>
-          <span>当前将以"{{ roleLabels[selectedRole] }}"身份进入</span>
-        </a-space>
-      </a-form>
+        <a-tab-pane key="register" tab="注册">
+          <a-form layout="vertical" @finish="submitRegister">
+            <a-form-item label="账号" required>
+              <a-input v-model:value="registerForm.account" placeholder="输入手机号或用户名" />
+            </a-form-item>
+            <a-form-item label="密码" required>
+              <a-input-password v-model:value="registerForm.password" />
+            </a-form-item>
+            <a-form-item label="确认密码" required>
+              <a-input-password v-model:value="registerForm.confirmPassword" />
+            </a-form-item>
+            <a-form-item label="注册角色" required>
+              <a-radio-group v-model:value="registerForm.role" class="role-card-group compact">
+                <a-radio-button v-for="item in roleCards" :key="item.role" :value="item.role" class="role-card-option">
+                  <div class="role-card-icon">
+                    <component :is="roleIcon(item.role)" :size="18" />
+                  </div>
+                  <div>
+                    <strong>{{ item.title }}</strong>
+                  </div>
+                </a-radio-button>
+              </a-radio-group>
+            </a-form-item>
+            <a-form-item v-if="registerNeedsOrg" label="工作单位" required>
+              <a-select v-model:value="registerForm.organizationId" size="large" :options="orgOptions" placeholder="选择工作单位">
+                <template #prefix><Building2 :size="16" /></template>
+              </a-select>
+            </a-form-item>
+            <a-alert
+              type="warning"
+              show-icon
+              message="内部角色注册后需审核"
+              description="当前为前端 mock 演示，注册后会标注待审核，但仍可使用该账号登录演示。"
+            />
+            <a-button class="submit-report" type="primary" size="large" html-type="submit" :loading="isSubmitting" @click="submitRegister">
+              提交注册
+            </a-button>
+          </a-form>
+        </a-tab-pane>
+      </a-tabs>
     </a-card>
   </main>
 </template>
