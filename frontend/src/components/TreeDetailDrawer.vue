@@ -195,14 +195,14 @@ const handleSubmitEdit = () => {
       <!-- Edit Form -->
       <div v-if="isEditing && canEditBase" class="edit-box">
         <div class="section-title"><Edit3 :size="16" />档案编辑</div>
-        <a-form layout="vertical" @finish="handleSubmitEdit">
-          <a-form-item label="树种" required>
+        <a-form layout="vertical" :model="editForm" @finish="handleSubmitEdit">
+          <a-form-item label="树种" name="species" required>
             <a-input v-model:value="editForm.species" />
           </a-form-item>
-          <a-form-item label="胸径(cm)" required>
+          <a-form-item label="胸径(cm)" name="dbh" required>
             <a-input-number v-model:value="editForm.dbh" :min="0" :precision="1" class="full-width" />
           </a-form-item>
-          <a-form-item label="类型" required>
+          <a-form-item label="类型" name="treeType" required>
             <a-select
               v-model:value="editForm.treeType"
               :options="[
@@ -212,7 +212,7 @@ const handleSubmitEdit = () => {
               ]"
             />
           </a-form-item>
-          <a-form-item label="保护等级">
+          <a-form-item label="保护等级" name="protectionLevel">
             <a-select
               v-model:value="editForm.protectionLevel"
               allow-clear
@@ -223,7 +223,7 @@ const handleSubmitEdit = () => {
               ]"
             />
           </a-form-item>
-          <a-form-item label="健康状态" required>
+          <a-form-item label="健康状态" name="healthStatus" required>
             <a-select
               v-model:value="editForm.healthStatus"
               :options="[
@@ -233,10 +233,10 @@ const handleSubmitEdit = () => {
               ]"
             />
           </a-form-item>
-          <a-form-item label="相对位置描述">
+          <a-form-item label="相对位置描述" name="locationDescription">
             <a-textarea v-model:value="editForm.locationDescription" :rows="2" />
           </a-form-item>
-          <a-form-item label="文化故事">
+          <a-form-item label="文化故事" name="story">
             <a-textarea v-model:value="editForm.story" :rows="3" />
           </a-form-item>
           <a-button type="primary" html-type="submit"><Save :size="16" />保存档案</a-button>
@@ -246,17 +246,17 @@ const handleSubmitEdit = () => {
       <!-- Report Form -->
       <div v-if="canReport" class="report-box">
         <div class="section-title"><ClipboardPlus :size="16" />问题上报</div>
-        <a-form layout="vertical" @finish="handleSubmitReport">
-          <a-form-item label="问题类型" required>
+        <a-form layout="vertical" :model="reportForm" @finish="handleSubmitReport">
+          <a-form-item label="问题类型" name="issueType" required>
             <a-select
               v-model:value="reportForm.issueType"
               :options="issueTypes.map((type) => ({ label: type, value: type }))"
             />
           </a-form-item>
-          <a-form-item label="问题描述">
+          <a-form-item label="问题描述" name="issueDescription">
             <a-textarea v-model:value="reportForm.issueDescription" :rows="3" placeholder="补充问题位置、现象或现场判断" />
           </a-form-item>
-          <a-form-item label="相对位置">
+          <a-form-item label="相对位置" name="locationDescription">
             <a-input v-model:value="reportForm.locationDescription" placeholder="例如：山门东侧第三排、碑亭北侧" />
           </a-form-item>
           <a-upload :before-upload="() => false" :max-count="3">
