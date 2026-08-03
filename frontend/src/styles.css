@@ -1185,7 +1185,8 @@ button {
   .guide-layout,
   .routes-layout,
   .workbench-stats,
-  .split-actions {
+  .split-actions,
+  .work-order-form-grid {
     grid-template-columns: 1fr;
   }
 
