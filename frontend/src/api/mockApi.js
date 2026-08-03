@@ -4,26 +4,41 @@ export const trees = rawTrees;
 
 export const roleLabels = {
   visitor: "游客",
-  admin: "管理员",
   inspector: "巡检人员",
   maintenance: "养护人员",
 };
 
 export const statusLabels = {
-  reported: "待派单",
-  assigned: "待处置",
-  processing: "处理中",
+  created: "已创建",
+  processing: "待处置",
   reviewing: "待复核",
-  closed: "已归档",
-  reassigned: "需返工",
+  archived: "已归档",
 };
+
+export const leadStatusLabels = {
+  new: "新线索",
+  converted: "已转工单",
+};
+
+export const healthLabels = {
+  healthy: "正常",
+  problem: "异常",
+  warning: "待观察",
+};
+
+export const healthOptions = [
+  { label: "正常", value: "healthy" },
+  { label: "异常", value: "problem" },
+  { label: "待观察", value: "warning" },
+];
 
 export const issueTypes = ["病虫害", "倾斜", "枯枝", "根系隆起", "树皮损伤", "长势异常"];
 
-export const maintenanceStaff = [
-  { id: "m-001", name: "养护一组" },
-  { id: "m-002", name: "养护二组" },
-  { id: "m-003", name: "古树专项组" },
+export const organizations = [
+  { label: "公众访问", value: "public" },
+  { label: "西安市园林养护一组", value: "garden-team-1" },
+  { label: "古树名木专项组", value: "ancient-tree-team" },
+  { label: "大兴善寺巡检组", value: "daxingshansi-inspection" },
 ];
 
 export const speciesPalette = [
@@ -117,27 +132,63 @@ export function buildStats(list) {
   };
 }
 
+function createPhotoRecord(url, name = "现场照片") {
+  return {
+    uid: `${name}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    name,
+    url,
+  };
+}
+
 export function createInitialWorkOrders(list) {
   const candidates = list.filter((tree) => tree.healthStatus !== "healthy").slice(0, 8);
-  return candidates.map((tree, index) => ({
-    id: `wo-${index + 1}`,
-    orderNo: `WO-20260728-${String(index + 1).padStart(3, "0")}`,
-    treeId: tree.id,
-    status: index % 3 === 0 ? "reported" : index % 3 === 1 ? "assigned" : "reviewing",
-    issueType: issueTypes[index % issueTypes.length],
-    issueDescription: `${tree.species}存在现场巡查记录，需要养护人员进一步确认。`,
-    issuePhotos: tree.photos,
-    reporterRole: index % 2 === 0 ? "inspector" : "visitor",
-    reporterName: index % 2 === 0 ? "巡检人员" : "游客反馈",
-    reportChannel: index % 2 === 0 ? "inspection" : "visitor",
-    assigneeId: index % 3 === 0 ? undefined : maintenanceStaff[index % maintenanceStaff.length].id,
-    assigneeName: index % 3 === 0 ? undefined : maintenanceStaff[index % maintenanceStaff.length].name,
-    treatmentPhotos: index % 3 === 2 ? tree.photos : [],
-    treatmentMeasures: index % 3 === 2 ? "已完成现场清理并设置继续观察标记。" : undefined,
-    treatmentTime: index % 3 === 2 ? "2026-07-28 15:30" : undefined,
-    createdAt: "2026-07-28 10:00",
-    updatedAt: "2026-07-28 15:30",
-  }));
+  return candidates.map((tree, index) => {
+    const isReviewing = index % 3 === 1;
+    const isArchived = index % 3 === 2;
+    const createdAt = "2026-07-28 10:00";
+    const processedAt = isReviewing || isArchived ? "2026-07-28 15:30" : undefined;
+    const reviewedAt = isArchived ? "2026-07-28 16:30" : undefined;
+    return {
+      id: `wo-${index + 1}`,
+      orderNo: `WO-20260728-${String(index + 1).padStart(3, "0")}`,
+      treeId: tree.id,
+      status: isArchived ? "archived" : isReviewing ? "reviewing" : "processing",
+      issueType: issueTypes[index % issueTypes.length],
+      issueDescription: `${tree.species}存在现场巡查记录，需要养护人员进一步确认。`,
+      creatorRole: index % 2 === 0 ? "inspector" : "maintenance",
+      creatorName: index % 2 === 0 ? "巡检人员" : "养护人员",
+      createPhotos: tree.photos.slice(0, 1).map((url) => createPhotoRecord(url, "创建照片")),
+      treatmentMeasures: processedAt ? "已完成现场清理并设置继续观察标记。" : undefined,
+      treatmentPhotos: processedAt ? tree.photos.slice(0, 1).map((url) => createPhotoRecord(url, "处置照片")) : [],
+      reviewUserName: reviewedAt ? "巡检人员" : undefined,
+      reviewResult: reviewedAt ? "passed" : undefined,
+      reviewComment: reviewedAt ? "处置效果达标，归档。" : undefined,
+      createdAt,
+      processedAt,
+      reviewedAt,
+      archivedAt: reviewedAt,
+      updatedAt: reviewedAt ?? processedAt ?? createdAt,
+    };
+  });
+}
+
+export function createInitialVisitorLeads(list) {
+  return list
+    .filter((tree) => tree.healthStatus !== "healthy")
+    .slice(8, 12)
+    .map((tree, index) => ({
+      id: `lead-${index + 1}`,
+      leadNo: `LEAD-20260728-${String(index + 1).padStart(3, "0")}`,
+      treeId: tree.id,
+      status: "new",
+      issueType: issueTypes[(index + 2) % issueTypes.length],
+      issueDescription: `游客反馈${tree.species}附近存在异常现象，请巡检人员确认。`,
+      locationDescription: tree.locationDescription,
+      photos: tree.photos.slice(0, 1).map((url) => createPhotoRecord(url, "游客线索照片")),
+      createdAt: "2026-07-28 11:20",
+      convertedAt: undefined,
+      convertedOrderId: undefined,
+    }));
 }
 
 export function findTree(treeId) {

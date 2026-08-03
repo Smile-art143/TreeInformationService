@@ -68,8 +68,8 @@ const onReset = () => emit("reset");
           :value="healthFilter"
           :options="[
             { label: '全部', value: 'all' },
-            { label: '健康', value: 'healthy' },
-            { label: '观察', value: 'warning' },
+            { label: '正常', value: 'healthy' },
+            { label: '待观察', value: 'warning' },
             { label: '异常', value: 'problem' },
           ]"
           @change="onHealthChange"

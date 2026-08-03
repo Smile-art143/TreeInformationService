@@ -2,15 +2,31 @@
 import { inject } from "vue";
 import WorkbenchPanel from "../components/WorkbenchPanel.vue";
 
-const { role, workOrders, selectedOrder, setSelectedOrder, updateWorkOrder } = inject("appState");
+const {
+  role,
+  trees,
+  workOrders,
+  visitorLeads,
+  selectedOrder,
+  setSelectedOrder,
+  updateWorkOrder,
+  createWorkOrder,
+  convertVisitorLeadToWorkOrder,
+  updateTree,
+} = inject("appState");
 </script>
 
 <template>
   <WorkbenchPanel
     :role="role"
+    :trees="trees"
     :work-orders="workOrders"
+    :visitor-leads="visitorLeads"
     :selected-order="selectedOrder"
     @select-order="setSelectedOrder"
     @update-order="updateWorkOrder"
+    @create-order="createWorkOrder"
+    @convert-lead="convertVisitorLeadToWorkOrder"
+    @update-tree="updateTree"
   />
 </template>
