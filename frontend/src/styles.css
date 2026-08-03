@@ -1018,54 +1018,6 @@ button {
   color: var(--nyc-gray);
 }
 
-.role-card-group.compact {
-  grid-template-columns: 1fr;
-}
-
-.demo-account-list {
-  margin-top: 14px;
-  padding-top: 14px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  color: var(--nyc-gray);
-  border-top: 1px solid #eeeeec;
-  font-size: 13px;
-}
-
-.demo-account-list button {
-  padding: 3px 8px;
-  color: var(--nyc-green);
-  background: #f4f8f1;
-  border: 1px solid #c7ddbc;
-  border-radius: 3px;
-  font-size: 12px;
-}
-
-.work-order-form-grid {
-  display: grid;
-  grid-template-columns: minmax(260px, 1.5fr) minmax(160px, 0.8fr) minmax(160px, 0.8fr);
-  gap: 14px;
-}
-
-.photo-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.photo-strip img {
-  width: 82px;
-  height: 62px;
-  object-fit: cover;
-  border: 1px solid var(--nyc-border);
-}
-
-.ant-tabs .table-card {
-  margin-top: 0;
-}
-
 @media (max-width: 1120px) {
   .site-brand-row,
   .site-nav-row,
@@ -1185,8 +1137,7 @@ button {
   .guide-layout,
   .routes-layout,
   .workbench-stats,
-  .split-actions,
-  .work-order-form-grid {
+  .split-actions {
     grid-template-columns: 1fr;
   }
 

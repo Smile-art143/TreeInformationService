@@ -9,13 +9,11 @@ import LoginPage from "./components/LoginPage.vue";
 import TreeDetailDrawer from "./components/TreeDetailDrawer.vue";
 import {
   buildStats,
-  createInitialVisitorLeads,
   createInitialWorkOrders,
   getSpeciesColorMap,
   roleLabels,
   trees as initialTrees,
 } from "./api/mockApi";
-import { logout } from "./api/authApi";
 
 // ---- router ----
 const router = useRouter();
@@ -23,9 +21,8 @@ const route = useRoute();
 
 // ---- state (was useState) ----
 const isAuthenticated = ref(false);
-const role = ref("inspector");
-const organizationName = ref("大兴善寺巡检组");
-const currentUser = ref(null);
+const role = ref("admin");
+const organizationName = ref("大兴善寺管理处");
 const page = ref("map");
 const trees = ref([...initialTrees]);
 const speciesFilter = ref([]);
@@ -34,7 +31,6 @@ const dbhRange = ref([0, initialMaxDbh]);
 const healthFilter = ref("all");
 const selectedTree = ref(null);
 const workOrders = ref(createInitialWorkOrders(initialTrees));
-const visitorLeads = ref(createInitialVisitorLeads(initialTrees));
 const selectedOrder = ref(null);
 const textSize = ref("default");
 const language = ref("zh");
@@ -51,6 +47,7 @@ const isEnglish = computed(() => language.value === "en");
 
 const roleOptions = computed(() => [
   { label: isEnglish.value ? "Visitor" : "游客", value: "visitor" },
+  { label: isEnglish.value ? "Admin" : "管理员", value: "admin" },
   { label: isEnglish.value ? "Inspector" : "巡检人员", value: "inspector" },
   { label: isEnglish.value ? "Maintenance" : "养护人员", value: "maintenance" },
 ]);
@@ -105,40 +102,6 @@ const createWorkOrder = (order) => {
   if (role.value !== "visitor") {
     router.push("/workbench");
   }
-};
-
-const createVisitorLead = (lead) => {
-  visitorLeads.value = [lead, ...visitorLeads.value];
-};
-
-const convertVisitorLeadToWorkOrder = (lead) => {
-  const now = new Date().toLocaleString("zh-CN", { hour12: false });
-  const order = {
-    id: `wo-${Date.now()}`,
-    orderNo: `WO-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(Math.random() * 900 + 100)}`,
-    treeId: lead.treeId,
-    status: "processing",
-    issueType: lead.issueType,
-    issueDescription: [lead.issueDescription, lead.locationDescription ? `相对位置：${lead.locationDescription}` : ""]
-      .filter(Boolean)
-      .join("；"),
-    creatorRole: role.value,
-    creatorName: roleLabels[role.value],
-    createPhotos: lead.photos,
-    treatmentPhotos: [],
-    createdAt: now,
-    updatedAt: now,
-    sourceLeadId: lead.id,
-  };
-
-  workOrders.value = [order, ...workOrders.value];
-  visitorLeads.value = visitorLeads.value.map((item) =>
-    item.id === lead.id
-      ? { ...item, status: "converted", convertedAt: now, convertedOrderId: order.id }
-      : item
-  );
-  selectedOrder.value = order;
-  return order;
 };
 
 const focusTree = (treeId) => {
@@ -211,22 +174,10 @@ onUnmounted(() => {
 });
 
 // ---- login handler ----
-const handleLogin = (user) => {
-  currentUser.value = user;
-  role.value = user.role;
-  organizationName.value = user.organizationName ?? "公众访问";
+const handleLogin = (values) => {
+  role.value = values.role;
+  organizationName.value = values.organizationName ?? "公众访问";
   isAuthenticated.value = true;
-  router.push("/map");
-};
-
-const handleLogout = async () => {
-  await logout();
-  currentUser.value = null;
-  isAuthenticated.value = false;
-  role.value = "inspector";
-  organizationName.value = "大兴善寺巡检组";
-  selectedTree.value = null;
-  selectedOrder.value = null;
   router.push("/map");
 };
 
@@ -235,7 +186,6 @@ provide("appState", {
   isEnglish,
   role,
   organizationName,
-  currentUser,
   textSize,
   language,
   trees,
@@ -247,7 +197,6 @@ provide("appState", {
   stats,
   treeSearchOptions,
   workOrders,
-  visitorLeads,
   selectedOrder,
   selectedTree,
   recentWorkOrders,
@@ -262,8 +211,6 @@ provide("appState", {
   panelMaxWidth,
   updateTree,
   createWorkOrder,
-  createVisitorLead,
-  convertVisitorLeadToWorkOrder,
   focusTree,
   resetMapFilters,
   updateWorkOrder,
@@ -298,8 +245,8 @@ provide("appState", {
       <div class="city-topbar-inner">
         <span>XI'AN URBAN TREE MAP</span>
         <div class="city-actions">
-          <span>{{ currentUser?.account }}</span>
-          <span>{{ roleLabels[role] }}</span>
+          <button type="button">{{ isEnglish ? 'Register' : '注册' }}</button>
+          <button type="button">{{ isEnglish ? 'Log In' : '登录' }}</button>
         </div>
       </div>
     </div>
@@ -352,11 +299,11 @@ provide("appState", {
           <a-segmented
             :value="role"
             :options="roleOptions"
-            @change="(val) => { role = val; organizationName = val === 'visitor' ? '公众访问' : organizationName === '公众访问' ? '大兴善寺巡检组' : organizationName; }"
+            @change="(val) => { role = val; organizationName = val === 'visitor' ? '公众访问' : organizationName === '公众访问' ? '大兴善寺管理处' : organizationName; }"
           />
           <a-button
             class="logout-button"
-            @click="handleLogout"
+            @click="isAuthenticated = false"
           >
             <LogOut :size="15" />
             {{ isEnglish ? 'Exit' : '退出' }}
@@ -376,7 +323,7 @@ provide("appState", {
       :role="role"
       :open="Boolean(selectedTree)"
       @close="selectedTree = null"
-      @create-visitor-lead="createVisitorLead"
+      @create-work-order="createWorkOrder"
       @update-tree="updateTree"
     />
   </a-layout>

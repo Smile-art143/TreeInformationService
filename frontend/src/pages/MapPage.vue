@@ -80,7 +80,7 @@ const onReset = () => resetMapFilters();
       <p>点击地图上的树木点位查看完整档案，使用筛选器按树种、胸径和健康状态缩小范围。</p>
       <a-space wrap class="home-links">
         <a-button type="link" @click="navigateTo('dashboard')">查看树木统计</a-button>
-        <a-button v-if="role !== 'visitor'" type="link" @click="navigateTo('workbench')">进入工单处理</a-button>
+        <a-button v-if="role !== 'visitor'" type="link" @click="navigateTo('workbench')">进入养护工作台</a-button>
       </a-space>
     </section>
 
@@ -126,9 +126,9 @@ const onReset = () => resetMapFilters();
       >
         <span>{{ order.createdAt }}</span>
         <p>
-          {{ order.creatorName ?? roleLabels[order.creatorRole] }} 创建了
+          {{ order.reporterName }} 上报了
           {{ (() => { const t = trees.find((item) => item.id === order.treeId); return t ? `${t.species} ${t.code}` : order.treeId; })() }}
-          的{{ order.issueType }}工单。
+          的{{ order.issueType }}问题。
         </p>
       </button>
     </section>
@@ -151,9 +151,10 @@ const onReset = () => resetMapFilters();
     <section class="home-section role-note">
       <Users :size="18" />
       <span>
-        <template v-if="role === 'visitor'">游客可查看树木详情、浏览导览路线并提交游客线索。</template>
-        <template v-if="role === 'inspector'">巡检人员可查看游客线索、创建工单、更新健康状态并复核归档。</template>
-        <template v-if="role === 'maintenance'">养护人员可创建工单、处置待处理任务并更新健康状态。</template>
+        <template v-if="role === 'visitor'">游客可查看树木、上传照片和提交问题上报。</template>
+        <template v-if="role === 'admin'">管理员可编辑档案、派单、复核并查看完整统计。</template>
+        <template v-if="role === 'inspector'">巡检人员可上报问题、更新健康状态并复核工单。</template>
+        <template v-if="role === 'maintenance'">养护人员主要处理已派发工单，不能创建游客上报。</template>
       </span>
     </section>
   </div>
