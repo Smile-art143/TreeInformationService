@@ -59,7 +59,7 @@ const speciesColors = computed(() => getSpeciesColorMap(trees.value));
 
 const navOptions = computed(() => [
   { label: isEnglish.value ? "Map" : "地图", value: "map" },
-  { label: isEnglish.value ? "Stats" : "统计", value: "dashboard" },
+
   { label: isEnglish.value ? "Work Orders" : "工单", value: "workbench", disabled: role.value === "visitor" },
   { label: isEnglish.value ? "Guide" : "导览", value: "guide" },
   { label: isEnglish.value ? "Routes" : "路线", value: "routes" },
@@ -89,7 +89,7 @@ const topSpecies = computed(() => stats.value.speciesRatio[0]);
 // ---- sync route with page state ----
 watch(() => route.path, (path) => {
   const pageName = path.replace("/", "") || "map";
-  if (["map", "dashboard", "workbench", "guide", "routes"].includes(pageName)) {
+  if (["map", "workbench", "guide", "routes"].includes(pageName)) {
     page.value = pageName;
   }
 });

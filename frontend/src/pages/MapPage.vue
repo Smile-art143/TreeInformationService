@@ -1,8 +1,9 @@
 <script setup>
-import { inject } from "vue";
-import { Leaf, BookOpen, CalendarDays, Users, Search } from "lucide-vue-next";
+import { inject, ref, watch } from "vue";
+import { Leaf, BookOpen, CalendarDays, Users, Search, X } from "lucide-vue-next";
 import ArcGISTreeMap from "../components/ArcGISTreeMap.vue";
 import FilterPanel from "../components/FilterPanel.vue";
+import StatsPanel from "../components/StatsPanel.vue";
 import { roleLabels } from "../api/mockApi";
 
 const app = inject("appState");
@@ -48,6 +49,39 @@ const onSpeciesChange = (val) => setSpeciesFilter(val);
 const onDbhRangeChange = (val) => setDbhRange(val);
 const onHealthChange = (val) => setHealthFilter(val);
 const onReset = () => resetMapFilters();
+
+// ---- stats modal ----
+const showStatsModal = ref(false);
+
+const openStatsModal = () => {
+  showStatsModal.value = true;
+};
+
+const closeStatsModal = () => {
+  showStatsModal.value = false;
+};
+
+const onModalBackdropClick = (event) => {
+  if (event.target === event.currentTarget) {
+    closeStatsModal();
+  }
+};
+
+const onModalKeydown = (event) => {
+  if (event.key === "Escape") {
+    closeStatsModal();
+  }
+};
+
+watch(showStatsModal, (val) => {
+  if (val) {
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onModalKeydown);
+  } else {
+    document.body.style.overflow = "";
+    window.removeEventListener("keydown", onModalKeydown);
+  }
+});
 </script>
 
 <template>
@@ -79,18 +113,33 @@ const onReset = () => resetMapFilters();
       <h1>西安城市树木</h1>
       <p>点击地图上的树木点位查看完整档案，使用筛选器按树种、胸径和健康状态缩小范围。</p>
       <a-space wrap class="home-links">
-        <a-button type="link" @click="navigateTo('dashboard')">查看树木统计</a-button>
+        <a-button type="link" @click="openStatsModal">查看树木统计</a-button>
         <a-button v-if="role !== 'visitor'" type="link" @click="navigateTo('workbench')">进入工单处理</a-button>
       </a-space>
     </section>
 
     <!-- Citywide Statistics -->
+    <section class="home-section stats-section">
+      <h2>城市树木概览</h2>
       <div class="city-stat-grid">
-        <div><strong>{{ stats.totalTrees.toLocaleString() }}</strong><span>树木入图</span></div>
-        <div><strong>{{ workOrders.length.toLocaleString() }}</strong><span>养护记录</span></div>
-        <div><strong>{{ trees.filter((tree) => tree.isAncient).length.toLocaleString() }}</strong><span>古树名木</span></div>
-        <div><strong>{{ stats.speciesCount.toLocaleString() }}</strong><span>树种数量</span></div>
+        <div class="stat-card">
+          <strong>{{ stats.totalTrees.toLocaleString() }}</strong>
+          <span>树木入图</span>
+        </div>
+        <div class="stat-card">
+          <strong>{{ workOrders.length.toLocaleString() }}</strong>
+          <span>养护记录</span>
+        </div>
+        <div class="stat-card">
+          <strong>{{ trees.filter((tree) => tree.isAncient).length.toLocaleString() }}</strong>
+          <span>古树名木</span>
+        </div>
+        <div class="stat-card">
+          <strong>{{ stats.speciesCount.toLocaleString() }}</strong>
+          <span>树种数量</span>
+        </div>
       </div>
+    </section>
 
  <!-- Split Actions -->
     <section class="home-section split-actions">
@@ -106,21 +155,31 @@ const onReset = () => resetMapFilters();
       </div>
     </section>
 
-    <!-- Census Callout -->
-    <section class="home-section census-callout">
-      <div class="callout-icon"><Leaf :size="34" /></div>
-      <div>
-        <h2>大兴善寺树木普查</h2>
-        <p>已整理 437 条树木记录，用于支撑地图展示、导览推荐和养护管理。</p>
-        <a-button type="primary" @click="navigateTo('guide')">参与导览</a-button>
+    <!-- 生态效益估算 -->
+    <section class="home-section eco-section">
+      <h2>生态效益</h2>
+      <div class="eco-stat-grid">
+        <div class="eco-stat-card">
+          <span class="eco-stat-value">{{ stats.ecologicalBenefits.stormwaterIntercepted.toLocaleString() }} <small>L</small></span>
+          <span class="eco-stat-label">年雨水截留估算</span>
+        </div>
+        <div class="eco-stat-card">
+          <span class="eco-stat-value">{{ stats.ecologicalBenefits.carbonSequestration.toLocaleString() }} <small>kg</small></span>
+          <span class="eco-stat-label">年固碳</span>
+        </div>
+        <div class="eco-stat-card">
+          <span class="eco-stat-value">{{ stats.ecologicalBenefits.oxygenProduction.toLocaleString() }} <small>kg</small></span>
+          <span class="eco-stat-label">年产氧</span>
+        </div>
+        <div class="eco-stat-card">
+          <span class="eco-stat-value">{{ stats.ecologicalBenefits.airPollutionRemoved.toLocaleString() }} <small>kg</small></span>
+          <span class="eco-stat-label">空气污染物移除</span>
+        </div>
       </div>
     </section>
-
-    
-
     <!-- Recent Activities -->
-    <section class="home-section activity-section">
-      <h2>Recent Tree Care Activities</h2>
+    <section v-if="role !== 'visitor'" class="home-section activity-section">
+      <h2>树木养护活动</h2>
       <button
         v-for="order in recentWorkOrders"
         :key="order.id"
@@ -186,4 +245,28 @@ const onReset = () => resetMapFilters();
     <div class="map-key-row"><span class="size-dot medium" /> 中胸径</div>
     <div class="map-key-row"><span class="size-dot large" /> 大胸径</div>
   </div>
+
+  <!-- Stats Modal -->
+  <Teleport to="body">
+    <Transition name="stats-modal">
+      <div
+        v-if="showStatsModal"
+        class="stats-modal-backdrop"
+        @click="onModalBackdropClick"
+      >
+        <div class="stats-modal-container">
+          <button
+            type="button"
+            class="stats-modal-close"
+            aria-label="关闭统计面板"
+            title="关闭 (Esc)"
+            @click="closeStatsModal"
+          >
+            <X :size="20" />
+          </button>
+          <StatsPanel :stats="stats" />
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>

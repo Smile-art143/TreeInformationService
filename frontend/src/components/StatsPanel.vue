@@ -51,27 +51,6 @@ const dbhOption = {
     </div>
 
     <a-row :gutter="[16, 16]">
-      <a-col :xs="24" :md="8">
-        <a-card :bordered="false">
-          <a-statistic title="树木总数" :value="stats.totalTrees" suffix="棵">
-            <template #prefix><Leaf :size="22" /></template>
-          </a-statistic>
-        </a-card>
-      </a-col>
-      <a-col :xs="24" :md="8">
-        <a-card :bordered="false">
-          <a-statistic title="树种数量" :value="stats.speciesCount" suffix="类">
-            <template #prefix><Sprout :size="22" /></template>
-          </a-statistic>
-        </a-card>
-      </a-col>
-      <a-col :xs="24" :md="8">
-        <a-card :bordered="false">
-          <a-statistic title="年雨水截留估算" :value="stats.ecologicalBenefits.stormwaterIntercepted" suffix="L">
-            <template #prefix><Waves :size="22" /></template>
-          </a-statistic>
-        </a-card>
-      </a-col>
       <a-col :xs="24" :lg="12">
         <a-card title="树种构成" :bordered="false">
           <VChart :option="speciesOption" style="height: 300px" autoresize />
@@ -82,26 +61,7 @@ const dbhOption = {
           <VChart :option="dbhOption" style="height: 300px" autoresize />
         </a-card>
       </a-col>
-      <a-col :xs="24">
-        <a-card title="生态效益估算" :bordered="false">
-          <a-row :gutter="[16, 16]">
-            <a-col :xs="12" :md="6">
-              <a-statistic title="碳储存" :value="stats.ecologicalBenefits.carbonStorage" suffix="kg" />
-            </a-col>
-            <a-col :xs="12" :md="6">
-              <a-statistic title="年固碳" :value="stats.ecologicalBenefits.carbonSequestration" suffix="kg" />
-            </a-col>
-            <a-col :xs="12" :md="6">
-              <a-statistic title="年产氧" :value="stats.ecologicalBenefits.oxygenProduction" suffix="kg" />
-            </a-col>
-            <a-col :xs="12" :md="6">
-              <a-statistic title="空气污染物移除" :value="stats.ecologicalBenefits.airPollutionRemoved" suffix="kg">
-                <template #prefix><BarChart3 :size="18" /></template>
-              </a-statistic>
-            </a-col>
-          </a-row>
-        </a-card>
-      </a-col>
+      
     </a-row>
   </div>
 </template>
