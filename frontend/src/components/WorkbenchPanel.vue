@@ -31,8 +31,8 @@ const statusFilter = ref("all");
 const showCreateForm = ref(false);
 const createPhotos = ref([]);
 const treatmentPhotos = ref([]);
-const treatmentForm = ref({ treatmentMeasures: "", healthStatus: "warning" });
-const reviewForm = ref({ reviewComment: "" });
+const treatmentForm = ref({ treatmentMeasures: "" });
+const reviewForm = ref({ reviewComment: "", healthStatus: "warning" });
 
 const createForm = ref({
   treeId: undefined,
@@ -70,10 +70,9 @@ const selectedTree = computed(() => props.selectedOrder ? getTreeForOrder(props.
 watch(() => props.selectedOrder?.id, () => {
   treatmentForm.value = {
     treatmentMeasures: "",
-    healthStatus: selectedTree.value?.healthStatus ?? "warning",
   };
   treatmentPhotos.value = [];
-  reviewForm.value = { reviewComment: "" };
+  reviewForm.value = { reviewComment: "", healthStatus: selectedTree.value?.healthStatus ?? "warning" };
 });
 
 const getTreeById = (treeId) => props.trees.find((tree) => tree.id === treeId);
@@ -175,8 +174,8 @@ const submitTreatment = (order) => {
 
   const now = new Date().toLocaleString("zh-CN", { hour12: false });
   const tree = getTreeForOrder(order);
-  if (tree && tree.healthStatus !== treatmentForm.value.healthStatus) {
-    emit("updateTree", { ...tree, healthStatus: treatmentForm.value.healthStatus });
+  if (tree && tree.healthStatus !== "warning") {
+    emit("updateTree", { ...tree, healthStatus: "warning" });
   }
   emit("updateOrder", {
     ...order,
@@ -187,12 +186,21 @@ const submitTreatment = (order) => {
     updatedAt: now,
   });
   treatmentPhotos.value = [];
-  treatmentForm.value = { treatmentMeasures: "", healthStatus: "warning" };
+  treatmentForm.value = { treatmentMeasures: "" };
   message.success("处置结果已提交，等待巡检复核");
 };
 
 const reviewOrder = (order, passed) => {
+  if (!reviewForm.value.healthStatus) {
+    message.error("请选择复核后健康状态");
+    return;
+  }
+
   const now = new Date().toLocaleString("zh-CN", { hour12: false });
+  const tree = getTreeForOrder(order);
+  if (tree && tree.healthStatus !== reviewForm.value.healthStatus) {
+    emit("updateTree", { ...tree, healthStatus: reviewForm.value.healthStatus });
+  }
   emit("updateOrder", {
     ...order,
     status: passed ? "archived" : "processing",
@@ -202,9 +210,10 @@ const reviewOrder = (order, passed) => {
     archivedAt: passed ? now : order.archivedAt,
     reviewResult: passed ? "passed" : "rework",
     reviewComment: reviewForm.value.reviewComment || (passed ? "处置效果达标，归档。" : "处置效果不足，退回待处置。"),
+    reviewHealthStatus: reviewForm.value.healthStatus,
     updatedAt: now,
   });
-  reviewForm.value = { reviewComment: "" };
+  reviewForm.value = { reviewComment: "", healthStatus: selectedTree.value?.healthStatus ?? "warning" };
   message.success(passed ? "工单已复核归档" : "工单已退回待处置");
 };
 
@@ -436,9 +445,6 @@ const leadColumns = [
             <a-form-item label="处置措施" required>
               <a-textarea v-model:value="treatmentForm.treatmentMeasures" :rows="4" placeholder="填写修剪、清理、支撑、病虫害处理等措施" />
             </a-form-item>
-            <a-form-item label="处置后健康状态" required>
-              <a-select v-model:value="treatmentForm.healthStatus" :options="healthOptions" />
-            </a-form-item>
             <a-form-item label="处置照片" required>
               <a-upload v-model:file-list="treatmentPhotos" :before-upload="() => false" :max-count="4" list-type="picture">
                 <a-button>添加处置照片</a-button>
@@ -453,6 +459,9 @@ const leadColumns = [
         <div v-if="canReview && selectedOrder.status === 'reviewing'" class="edit-box">
           <div class="section-title"><CheckCircle2 :size="16" />复核处理</div>
           <a-form layout="vertical">
+            <a-form-item label="复核后健康状态" required>
+              <a-select v-model:value="reviewForm.healthStatus" :options="healthOptions" />
+            </a-form-item>
             <a-form-item label="复核意见">
               <a-textarea v-model:value="reviewForm.reviewComment" :rows="3" placeholder="填写复核意见" />
             </a-form-item>
