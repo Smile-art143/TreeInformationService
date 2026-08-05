@@ -111,6 +111,10 @@ const createVisitorLead = (lead) => {
   visitorLeads.value = [lead, ...visitorLeads.value];
 };
 
+const deleteVisitorLead = (leadId) => {
+  visitorLeads.value = visitorLeads.value.filter((lead) => lead.id !== leadId);
+};
+
 const convertVisitorLeadToWorkOrder = (lead) => {
   const now = new Date().toLocaleString("zh-CN", { hour12: false });
   const order = {
@@ -130,6 +134,16 @@ const convertVisitorLeadToWorkOrder = (lead) => {
     updatedAt: now,
     sourceLeadId: lead.id,
   };
+
+  // Update tree health status if lead has one
+  if (lead.healthStatus) {
+    const tree = trees.value.find((t) => t.id === lead.treeId);
+    if (tree && tree.healthStatus !== lead.healthStatus) {
+      trees.value = trees.value.map((t) =>
+        t.id === tree.id ? { ...t, healthStatus: lead.healthStatus } : t
+      );
+    }
+  }
 
   workOrders.value = [order, ...workOrders.value];
   visitorLeads.value = visitorLeads.value.map((item) =>
@@ -263,6 +277,7 @@ provide("appState", {
   updateTree,
   createWorkOrder,
   createVisitorLead,
+  deleteVisitorLead,
   convertVisitorLeadToWorkOrder,
   focusTree,
   resetMapFilters,

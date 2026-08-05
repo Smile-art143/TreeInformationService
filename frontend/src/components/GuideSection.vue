@@ -23,7 +23,7 @@ const submitStory = () => {
 </script>
 
 <template>
-  <div class="guide-page">
+  <div>
     <div class="page-heading">
       <div>
         <h1>旅游导览</h1>
@@ -75,32 +75,8 @@ const submitStory = () => {
       </a-card>
 
       <!-- Story Submission -->
-      <a-card title="树木故事投稿" :bordered="false">
-        <a-form layout="vertical" @finish="submitStory">
-          <a-form-item label="关联树木">
-            <a-input placeholder="树木编号，如 DX-1" />
-          </a-form-item>
-          <a-form-item label="故事内容" required>
-            <a-textarea :rows="5" placeholder="记录树木故事、游览体验或文化线索" />
-          </a-form-item>
-          <a-upload :before-upload="() => false" :max-count="3">
-            <a-button><Camera :size="16" />添加照片</a-button>
-          </a-upload>
-          <a-button class="submit-report" type="primary" html-type="submit">
-            <Send :size="16" />提交故事
-          </a-button>
-        </a-form>
-      </a-card>
 
       <!-- Tour Tips -->
-      <a-card title="游览提示" :bordered="false">
-        <a-space wrap>
-          <a-tag color="gold"><MapPin :size="13" /> 银杏 11月</a-tag>
-          <a-tag color="green"><MapPin :size="13" /> 桂花 9月下旬</a-tag>
-          <a-tag color="pink"><MapPin :size="13" /> 樱花 3月底-4月初</a-tag>
-        </a-space>
-        <p class="guide-copy">结合季节物候和树木分布，推荐适合拍照、研学和日常游览的树木点位。</p>
-      </a-card>
     </div>
   </div>
 </template>

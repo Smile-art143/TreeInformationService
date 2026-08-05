@@ -15,6 +15,45 @@ const emit = defineEmits(["close", "createVisitorLead", "updateTree"]);
 const canSubmitLead = computed(() => props.role === "visitor");
 const canEditHealth = computed(() => props.role === "inspector" || props.role === "maintenance");
 
+const isEditingArchive = ref(false);
+const archiveForm = ref({ species: "", dbh: "", story: "" });
+
+const startEditArchive = () => {
+  if (!props.tree) return;
+  archiveForm.value = {
+    species: props.tree.species || "",
+    dbh: props.tree.dbh || "",
+    story: props.tree.story || "",
+  };
+  isEditingArchive.value = true;
+};
+
+const saveArchive = () => {
+  if (!props.tree) return;
+  emit("updateTree", {
+    ...props.tree,
+    species: archiveForm.value.species,
+    dbh: archiveForm.value.dbh,
+    story: archiveForm.value.story,
+  });
+  isEditingArchive.value = false;
+  message.success("树木档案已保存");
+};
+
+const cancelEditArchive = () => {
+  isEditingArchive.value = false;
+};
+
+watch(() => props.tree?.id, () => {
+  leadForm.value = {
+    issueType: issueTypes[0],
+    issueDescription: "",
+    locationDescription: "",
+  };
+  leadPhotos.value = [];
+  isEditingArchive.value = false;
+});
+
 const healthColor = computed(() => {
   if (!props.tree) return "default";
   if (props.tree.healthStatus === "healthy") return "green";
@@ -28,15 +67,6 @@ const leadForm = ref({
   locationDescription: "",
 });
 const leadPhotos = ref([]);
-
-watch(() => props.tree?.id, () => {
-  leadForm.value = {
-    issueType: issueTypes[0],
-    issueDescription: "",
-    locationDescription: "",
-  };
-  leadPhotos.value = [];
-});
 
 const toPhotoRecords = (fileList) =>
   fileList.map((file) => ({
@@ -124,14 +154,40 @@ const submitLead = () => {
         </a-descriptions-item>
         <a-descriptions-item label="类型">{{ tree.treeType }}</a-descriptions-item>
         <a-descriptions-item label="保护等级">{{ tree.protectionLevel ?? '无' }}</a-descriptions-item>
-        <a-descriptions-item label="相对位置">{{ tree.locationDescription }}</a-descriptions-item>
       </a-descriptions>
 
       <div class="story-block">
-        <div class="section-title">树木故事</div>
-        <p>{{ tree.story }}</p>
+        <div class="section-title">树木资料</div>
+
+        <template v-if="isEditingArchive">
+          <a-form layout="vertical" class="archive-edit-form">
+            <a-form-item label="树种">
+              <a-input v-model:value="archiveForm.species" />
+            </a-form-item>
+            <a-form-item label="胸径">
+              <a-input v-model:value="archiveForm.dbh" />
+            </a-form-item>
+            <a-form-item label="树木故事">
+              <a-textarea v-model:value="archiveForm.story" :rows="3" />
+            </a-form-item>
+            <a-space>
+              <a-button type="primary" @click="saveArchive">保存</a-button>
+              <a-button @click="cancelEditArchive">取消</a-button>
+            </a-space>
+          </a-form>
+        </template>
+        <template v-else>
+           <p>{{ tree.story }}</p>
+        </template>
       </div>
 
+      
+      
+          
+          <a-button v-if="canEditHealth" type="default" size="small" @click="startEditArchive">
+            编辑树木档案
+          </a-button>
+        
       <div v-if="canEditHealth" class="edit-box">
         <div class="section-title"><HeartPulse :size="16" />健康状态</div>
         <a-space wrap>
@@ -149,7 +205,7 @@ const submitLead = () => {
 
       <div v-if="canSubmitLead" class="report-box">
         <div class="section-title"><ClipboardPlus :size="16" />提交游客线索</div>
-        <a-form layout="vertical" @finish="submitLead">
+        <a-form layout="vertical">
           <a-form-item label="问题类型" required>
             <a-select
               v-model:value="leadForm.issueType"
@@ -172,7 +228,7 @@ const submitLead = () => {
               <a-button><Camera :size="16" />添加线索照片</a-button>
             </a-upload>
           </a-form-item>
-          <a-button class="submit-report" type="primary" html-type="submit">
+          <a-button class="submit-report" type="primary" @click="submitLead">
             提交线索
           </a-button>
         </a-form>

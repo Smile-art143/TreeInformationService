@@ -141,6 +141,25 @@ watch(showStatsModal, (val) => {
       </div>
     </section>
 
+    <!-- Recent Activities -->
+    <section v-if="role !== 'visitor'" class="home-section activity-section">
+      <h2>树木养护活动</h2>
+      <button
+        v-for="order in recentWorkOrders"
+        :key="order.id"
+        type="button"
+        class="activity-item"
+        @click="handleFocusTree(order.treeId)"
+      >
+        <span>{{ order.createdAt }}</span>
+        <p>
+          {{ order.creatorName ?? roleLabels[order.creatorRole] }} 创建了
+          {{ (() => { const t = trees.find((item) => item.id === order.treeId); return t ? `${t.species} ${t.code}` : order.treeId; })() }}
+          的{{ order.issueType }}工单。
+        </p>
+      </button>
+    </section>
+
  <!-- Split Actions -->
     <section class="home-section split-actions">
       <div>
@@ -177,24 +196,7 @@ watch(showStatsModal, (val) => {
         </div>
       </div>
     </section>
-    <!-- Recent Activities -->
-    <section v-if="role !== 'visitor'" class="home-section activity-section">
-      <h2>树木养护活动</h2>
-      <button
-        v-for="order in recentWorkOrders"
-        :key="order.id"
-        type="button"
-        class="activity-item"
-        @click="handleFocusTree(order.treeId)"
-      >
-        <span>{{ order.createdAt }}</span>
-        <p>
-          {{ order.creatorName ?? roleLabels[order.creatorRole] }} 创建了
-          {{ (() => { const t = trees.find((item) => item.id === order.treeId); return t ? `${t.species} ${t.code}` : order.treeId; })() }}
-          的{{ order.issueType }}工单。
-        </p>
-      </button>
-    </section>
+    
 
    
 

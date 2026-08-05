@@ -732,10 +732,40 @@ button {
 
 .stats-page,
 .workbench-page,
-.guide-page,
 .routes-page {
   max-width: 1200px;
   margin: 0 auto;
+}
+
+/* ---- Guide Page (map + content) ---- */
+.guide-page {
+  position: relative;
+  height: calc(100vh - 166px);
+  margin: -28px -40px -42px;
+  overflow: hidden;
+}
+
+.guide-map-area {
+  position: absolute;
+  inset: 0;
+}
+
+.guide-map-area .map-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.guide-content-wrap {
+  position: relative;
+  z-index: 1;
+  width: 420px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 28px 24px 28px;
+  background: rgba(255, 255, 255, 0.96);
+  border-right: 1px solid var(--nyc-border);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .page-heading {
@@ -1379,6 +1409,27 @@ button {
   .split-actions,
   .work-order-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .guide-page {
+    height: auto;
+    margin: -28px -14px -28px;
+    overflow: visible;
+  }
+
+  .guide-map-area {
+    position: relative;
+    height: 46vh;
+    min-height: 320px;
+    inset: auto;
+  }
+
+  .guide-content-wrap {
+    position: relative;
+    width: auto;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--nyc-border);
   }
 
   .table-toolbar {
