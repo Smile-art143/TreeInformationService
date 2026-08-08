@@ -9,6 +9,7 @@ import LoginPage from "./components/LoginPage.vue";
 import TreeDetailDrawer from "./components/TreeDetailDrawer.vue";
 import {
   buildStats,
+  computeNextTreeCode,
   createInitialVisitorLeads,
   createInitialWorkOrders,
   getSpeciesColorMap,
@@ -24,7 +25,7 @@ const route = useRoute();
 // ---- state (was useState) ----
 const isAuthenticated = ref(false);
 const role = ref("inspector");
-const organizationName = ref("大兴善寺巡检组");
+const organizationName = ref("大兴善寺");
 const currentUser = ref(null);
 const page = ref("map");
 const trees = ref([...initialTrees]);
@@ -36,6 +37,59 @@ const selectedTree = ref(null);
 const workOrders = ref(createInitialWorkOrders(initialTrees));
 const visitorLeads = ref(createInitialVisitorLeads(initialTrees));
 const selectedOrder = ref(null);
+const checkInRecords = ref([
+  {
+    id: "ci-demo-1",
+    treeId: "DX-1",
+    treeCode: "DX-1",
+    species: "松树",
+    photoUrl: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=400&q=80",
+    userName: "游客",
+    likedBy: ["游客", "巡检员小王"],
+    createdAt: "2026/8/5 14:30:00",
+  },
+  {
+    id: "ci-demo-2",
+    treeId: "DX-2",
+    treeCode: "DX-2",
+    species: "侧柏",
+    photoUrl: "https://images.unsplash.com/photo-1502082553048-f009c37129b9?auto=format&fit=crop&w=400&q=80",
+    userName: "游客",
+    likedBy: ["游客"],
+    createdAt: "2026/8/4 09:15:00",
+  },
+  {
+    id: "ci-demo-3",
+    treeId: "DX-1",
+    treeCode: "DX-1",
+    species: "松树",
+    photoUrl: "https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?auto=format&fit=crop&w=400&q=80",
+    userName: "巡检员小王",
+    likedBy: ["游客", "养护老李", "巡检员小王"],
+    createdAt: "2026/8/3 16:45:00",
+  },
+  {
+    id: "ci-demo-4",
+    treeId: "DX-2",
+    treeCode: "DX-2",
+    species: "侧柏",
+    photoUrl: "https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?auto=format&fit=crop&w=400&q=80",
+    userName: "养护老李",
+    likedBy: [],
+    createdAt: "2026/8/2 11:00:00",
+  },
+  {
+    id: "ci-demo-5",
+    treeId: "DX-1",
+    treeCode: "DX-1",
+    species: "松树",
+    photoUrl: "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=400&q=80",
+    userName: "游客",
+    likedBy: ["养护老李"],
+    createdAt: "2026/8/1 08:20:00",
+  },
+]);
+const currentUserName = ref("游客");
 const textSize = ref("default");
 const language = ref("zh");
 const homePanelWidth = ref(496);
@@ -74,6 +128,21 @@ const filteredTrees = computed(() => {
   });
 });
 
+const unlockedSpecies = computed(() => [...new Set(checkInRecords.value.map((r) => r.species))]);
+const allSpecies = computed(() => [...new Set(trees.value.map((t) => t.species))].sort((a, b) => a.localeCompare(b, "zh-Hans-CN")));
+const checkInLeaderboard = computed(() => {
+  const counts = {};
+  checkInRecords.value.forEach((r) => {
+    const key = r.treeId;
+    if (!counts[key]) {
+      counts[key] = { treeId: r.treeId, treeCode: r.treeCode, species: r.species, count: 0 };
+    }
+    counts[key].count += 1;
+  });
+  return Object.values(counts).sort((a, b) => b.count - a.count);
+});
+const photoWallPhotos = computed(() => checkInRecords.value.filter((r) => r.photoUrl));
+
 const stats = computed(() => buildStats(trees.value));
 
 const treeSearchOptions = computed(() =>
@@ -100,11 +169,44 @@ const updateTree = (nextTree) => {
   selectedTree.value = nextTree;
 };
 
-const createWorkOrder = (order) => {
+const addTree = (treeData) => {
+  const nextCode = computeNextTreeCode(trees.value);
+  const newTree = {
+    id: nextCode,
+    code: nextCode,
+    species: treeData.species,
+    dbh: Number(treeData.dbh) || 0,
+    longitude: Number(treeData.longitude) || 0,
+    latitude: Number(treeData.latitude) || 0,
+    siteId: "site",
+    siteName: treeData.locationDescription || "",
+    treeType: treeData.treeType,
+    isAncient: treeData.treeType === "古树",
+    protectionLevel: treeData.treeType === "古树" ? treeData.protectionLevel : null,
+    healthStatus: treeData.healthStatus || "healthy",
+    locationDescription: treeData.locationDescription || "",
+    photos: treeData.photos || [],
+    story: treeData.story || "",
+    remark: "",
+  };
+  trees.value = [...trees.value, newTree];
+  selectedTree.value = newTree;
+};
+
+const createWorkOrder = (order, { navigate = true } = {}) => {
   workOrders.value = [order, ...workOrders.value];
-  if (role.value !== "visitor") {
+  if (navigate && role.value !== "visitor") {
     router.push("/workbench");
   }
+};
+
+const pendingOrdersForRole = computed(() => {
+  const status = role.value === "maintenance" ? "processing" : "reviewing";
+  return workOrders.value.filter((o) => o.status === status);
+});
+
+const navigateToGuideWithOrder = (orderId) => {
+  router.push(`/guide?pageMode=navigate&orderId=${orderId}`);
 };
 
 const createVisitorLead = (lead) => {
@@ -113,6 +215,31 @@ const createVisitorLead = (lead) => {
 
 const deleteVisitorLead = (leadId) => {
   visitorLeads.value = visitorLeads.value.filter((lead) => lead.id !== leadId);
+};
+
+const addCheckIn = ({ treeId, treeCode, species, photoUrl }) => {
+  const record = {
+    id: `ci-${Date.now()}`,
+    treeId,
+    treeCode,
+    species,
+    photoUrl,
+    userName: currentUserName.value,
+    likedBy: [],
+    createdAt: new Date().toLocaleString("zh-CN", { hour12: false }),
+  };
+  checkInRecords.value = [record, ...checkInRecords.value];
+};
+
+const toggleLike = (checkInId) => {
+  checkInRecords.value = checkInRecords.value.map((r) => {
+    if (r.id !== checkInId) return r;
+    const idx = r.likedBy.indexOf(currentUserName.value);
+    if (idx >= 0) {
+      return { ...r, likedBy: r.likedBy.filter((u) => u !== currentUserName.value) };
+    }
+    return { ...r, likedBy: [...r.likedBy, currentUserName.value] };
+  });
 };
 
 const convertVisitorLeadToWorkOrder = (lead) => {
@@ -238,7 +365,7 @@ const handleLogout = async () => {
   currentUser.value = null;
   isAuthenticated.value = false;
   role.value = "inspector";
-  organizationName.value = "大兴善寺巡检组";
+  organizationName.value = "大兴善寺";
   selectedTree.value = null;
   selectedOrder.value = null;
   router.push("/map");
@@ -262,6 +389,12 @@ provide("appState", {
   treeSearchOptions,
   workOrders,
   visitorLeads,
+  checkInRecords,
+  currentUserName,
+  unlockedSpecies,
+  allSpecies,
+  checkInLeaderboard,
+  photoWallPhotos,
   selectedOrder,
   selectedTree,
   recentWorkOrders,
@@ -275,6 +408,9 @@ provide("appState", {
   panelDefaultWidth,
   panelMaxWidth,
   updateTree,
+  addTree,
+  addCheckIn,
+  toggleLike,
   createWorkOrder,
   createVisitorLead,
   deleteVisitorLead,
@@ -283,6 +419,8 @@ provide("appState", {
   resetMapFilters,
   updateWorkOrder,
   navigateTo,
+  pendingOrdersForRole,
+  navigateToGuideWithOrder,
   setSelectedTree: (tree) => { selectedTree.value = tree; },
   setSelectedOrder: (order) => { selectedOrder.value = order; },
   setSpeciesFilter: (val) => { speciesFilter.value = val; },
@@ -367,7 +505,7 @@ provide("appState", {
           <a-segmented
             :value="role"
             :options="roleOptions"
-            @change="(val) => { role = val; organizationName = val === 'visitor' ? '公众访问' : organizationName === '公众访问' ? '大兴善寺巡检组' : organizationName; }"
+            @change="(val) => { role = val; organizationName = val === 'visitor' ? '公众访问' : organizationName === '公众访问' ? '大兴善寺' : organizationName; }"
           />
           <a-button
             class="logout-button"
@@ -385,11 +523,11 @@ provide("appState", {
       <router-view />
     </a-layout-content>
 
-    <!-- Tree Detail Drawer (global) -->
+    <!-- Tree Detail Drawer (global, suppressed on guide page for non-visitors) -->
     <TreeDetailDrawer
       :tree="selectedTree"
       :role="role"
-      :open="Boolean(selectedTree)"
+      :open="Boolean(selectedTree) && !(page === 'guide' && role !== 'visitor')"
       @close="selectedTree = null"
       @create-visitor-lead="createVisitorLead"
       @update-tree="updateTree"

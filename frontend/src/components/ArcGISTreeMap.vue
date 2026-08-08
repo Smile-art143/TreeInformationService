@@ -6,7 +6,11 @@ import Graphic from "@arcgis/core/Graphic";
 import GraphicsLayer from "@arcgis/core/layers/GraphicsLayer";
 import WebTileLayer from "@arcgis/core/layers/WebTileLayer";
 import Point from "@arcgis/core/geometry/Point";
+import Polygon from "@arcgis/core/geometry/Polygon";
+import Polyline from "@arcgis/core/geometry/Polyline";
 import SimpleMarkerSymbol from "@arcgis/core/symbols/SimpleMarkerSymbol";
+import SimpleFillSymbol from "@arcgis/core/symbols/SimpleFillSymbol";
+import SimpleLineSymbol from "@arcgis/core/symbols/SimpleLineSymbol";
 import { getDbhSize } from "../api/mockApi";
 
 
@@ -76,11 +80,12 @@ const props = defineProps({
   speciesColors: { type: Object, default: () => ({}) },
 });
 
-const emit = defineEmits(["treeSelect"]);
+const emit = defineEmits(["treeSelect", "mapClick"]);
 
 const containerRef = ref(null);
 const viewRef = shallowRef(null);
 const layerRef = shallowRef(null);
+const overlayLayerRef = shallowRef(null);
 const treesRef = ref([...props.trees]);
 
 // Keep treesRef in sync
@@ -93,6 +98,7 @@ onMounted(() => {
   if (!containerRef.value || viewRef.value) return;
 
   const treeLayer = new GraphicsLayer({ title: "树木点位" });
+  const overlayLayer = new GraphicsLayer({ title: "巡检覆盖层" });
 
   // 天地图矢量底图（限流 + 自动重试）
   const vecLayer = new ThrottledWebTileLayer({
@@ -109,7 +115,7 @@ onMounted(() => {
   });
 
   const map = new ArcGISMap({
-    layers: [vecLayer, cvaLayer, treeLayer],
+    layers: [vecLayer, cvaLayer, treeLayer, overlayLayer],
   });
 
   const view = new MapView({
@@ -127,6 +133,7 @@ onMounted(() => {
   view.ui.move("zoom", "bottom-right");
   viewRef.value = markRaw(view);
   layerRef.value = markRaw(treeLayer);
+  overlayLayerRef.value = markRaw(overlayLayer);
 
   const clickHandle = view.on("click", async (event) => {
     const response = await view.hitTest(event);
@@ -138,6 +145,12 @@ onMounted(() => {
       const treeId = hit.graphic.attributes?.treeId;
       const tree = treesRef.value.find((item) => item.id === treeId);
       if (tree) emit("treeSelect", tree);
+    } else {
+      // Clicked on empty map space → emit coordinates for repositioning
+      emit("mapClick", {
+        longitude: event.mapPoint.longitude,
+        latitude: event.mapPoint.latitude,
+      });
     }
   });
 
@@ -147,6 +160,7 @@ onMounted(() => {
     view.destroy();
     viewRef.value = null;
     layerRef.value = null;
+    overlayLayerRef.value = null;
   });
 });
 
@@ -205,6 +219,165 @@ watch(
     ).catch(() => undefined);
   }
 );
+
+// ---- helper: create circle polygon ----
+function createCircleGeometry(centerLon, centerLat, radiusM, pointCount = 64) {
+  const earthRadius = 6371000;
+  const points = [];
+  const latRad = (centerLat * Math.PI) / 180;
+  const cosLat = Math.cos(latRad);
+  for (let i = 0; i <= pointCount; i++) {
+    const angle = (i / pointCount) * 2 * Math.PI;
+    const dLat = (radiusM * Math.cos(angle)) / earthRadius;
+    const dLon = (radiusM * Math.sin(angle)) / (earthRadius * cosLat);
+    const lat = centerLat + (dLat * 180) / Math.PI;
+    const lon = centerLon + (dLon * 180) / Math.PI;
+    points.push([lon, lat]);
+  }
+  return new Polygon({
+    rings: [points],
+    spatialReference: { wkid: 4326 },
+  });
+}
+
+// ---- expose methods for external control ----
+defineExpose({
+  flyTo(lat, lng, zoom = 18) {
+    const view = viewRef.value;
+    if (!view) return;
+    view.goTo({ center: [lng, lat], zoom }, { duration: 600 });
+  },
+  showLocationMarker(lat, lng) {
+    const layer = overlayLayerRef.value;
+    if (!layer) return;
+    // White outer ring with blue border
+    layer.add(new Graphic({
+      geometry: new Point({ longitude: lng, latitude: lat }),
+      symbol: new SimpleMarkerSymbol({
+        style: "circle",
+        color: [255, 255, 255, 1],
+        size: 18,
+        outline: { color: [22, 119, 255, 1], width: 3 },
+      }),
+      attributes: { type: "location-marker" },
+    }));
+    // Crosshair center
+    layer.add(new Graphic({
+      geometry: new Point({ longitude: lng, latitude: lat }),
+      symbol: new SimpleMarkerSymbol({
+        style: "cross",
+        color: [22, 119, 255, 1],
+        size: 12,
+      }),
+      attributes: { type: "location-marker" },
+    }));
+  },
+  showRadiusCircle(lat, lng, radiusM) {
+    const layer = overlayLayerRef.value;
+    if (!layer) return;
+    layer.add(new Graphic({
+      geometry: createCircleGeometry(lng, lat, radiusM),
+      symbol: new SimpleFillSymbol({
+        color: [22, 119, 255, 0.08],
+        outline: new SimpleLineSymbol({
+          color: [22, 119, 255, 1],
+          width: 1.5,
+          style: "dash",
+        }),
+      }),
+      attributes: { type: "radius-circle" },
+    }));
+  },
+  showNearbyHighlight(nearbyTrees) {
+    const layer = overlayLayerRef.value;
+    if (!layer) return;
+    nearbyTrees.forEach((tree) => {
+      layer.add(new Graphic({
+        geometry: new Point({
+          longitude: tree.longitude,
+          latitude: tree.latitude,
+        }),
+        symbol: new SimpleMarkerSymbol({
+          style: "circle",
+          color: [22, 119, 255, 0.2],
+          size: getDbhSize(tree.dbh) + 12,
+        }),
+        attributes: { type: "nearby-highlight", treeId: tree.id },
+      }));
+    });
+  },
+  clearCustomOverlays() {
+    const layer = overlayLayerRef.value;
+    if (!layer) return;
+    layer.removeAll();
+  },
+  showPendingTreeMarkers(pendingTrees, statusType) {
+    const layer = overlayLayerRef.value;
+    if (!layer) return;
+    const isProcessing = statusType === "processing";
+    const fillColor = isProcessing ? [255, 140, 0, 0.7] : [153, 51, 255, 0.7];
+    const outlineColor = isProcessing ? [255, 120, 0, 1] : [130, 30, 230, 1];
+    pendingTrees.forEach((tree) => {
+      layer.add(new Graphic({
+        geometry: new Point({
+          longitude: tree.longitude,
+          latitude: tree.latitude,
+        }),
+        symbol: new SimpleMarkerSymbol({
+          style: "circle",
+          color: fillColor,
+          size: getDbhSize(tree.dbh) + 6,
+          outline: { color: outlineColor, width: 2 },
+        }),
+        attributes: { type: "pending-tree", treeId: tree.id, statusType },
+      }));
+    });
+  },
+  showTargetMarker(lat, lng, statusType, dbh) {
+    const layer = overlayLayerRef.value;
+    if (!layer) return;
+    const isProcessing = statusType === "processing";
+    const color = isProcessing ? [255, 100, 0, 1] : [140, 30, 255, 1];
+    const size = (dbh ? getDbhSize(dbh) : 14) + 16;
+    // Outer pulse ring
+    layer.add(new Graphic({
+      geometry: new Point({ longitude: lng, latitude: lat }),
+      symbol: new SimpleMarkerSymbol({
+        style: "circle",
+        color: isProcessing ? [255, 140, 0, 0.25] : [153, 51, 255, 0.25],
+        size: size + 10,
+      }),
+      attributes: { type: "target-marker-pulse" },
+    }));
+    // Main target marker
+    layer.add(new Graphic({
+      geometry: new Point({ longitude: lng, latitude: lat }),
+      symbol: new SimpleMarkerSymbol({
+        style: "circle",
+        color,
+        size,
+        outline: { color: [255, 255, 255, 1], width: 4 },
+      }),
+      attributes: { type: "target-marker", statusType },
+    }));
+  },
+  showNavigationLine(fromLat, fromLng, toLat, toLng) {
+    const layer = overlayLayerRef.value;
+    if (!layer) return;
+    layer.add(new Graphic({
+      geometry: new Polyline({
+        paths: [[[fromLng, fromLat], [toLng, toLat]]],
+        spatialReference: { wkid: 4326 },
+      }),
+      symbol: new SimpleLineSymbol({
+        color: [22, 119, 255, 0.8],
+        width: 3,
+        style: "dash",
+      }),
+      attributes: { type: "navigation-line" },
+    }));
+  },
+});
 </script>
 
 <template>

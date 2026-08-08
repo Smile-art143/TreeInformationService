@@ -940,6 +940,390 @@ button {
   line-height: 1.7;
 }
 
+/* ---- Atlas progress bar ---- */
+.atlas-progress {
+  margin-bottom: 16px;
+  padding: 0 4px;
+}
+
+/* ---- Guide right-side floating panels ---- */
+.guide-right-panels {
+  position: absolute;
+  z-index: 12;
+  top: 16px;
+  right: 16px;
+  width: 320px;
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.guide-right-panels .map-panel {
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid var(--nyc-border);
+  border-radius: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.guide-right-panels .ant-card-head {
+  min-height: auto;
+  padding: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.guide-right-panels .ant-card-body {
+  padding: 0;
+}
+
+/* ---- Inspector Panels (巡检人员左侧面板) ---- */
+.inspector-main-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.inspector-main-card .ant-card-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.coords-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.coords-hint {
+  font-size: 11px;
+  color: var(--nyc-muted, #999);
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tree-list-item {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.tree-list-item:hover {
+  background: rgba(22, 119, 255, 0.04);
+}
+
+.tree-list-item.selected {
+  background: rgba(22, 119, 255, 0.08);
+  border-left: 3px solid #1677ff;
+  padding-left: 9px;
+}
+
+.tree-list-item .ant-list-item-meta {
+  align-items: center;
+}
+
+.tree-detail-card .tree-photo {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  border: 1px solid var(--nyc-border);
+  margin-bottom: 8px;
+}
+
+/* ---- Mode Tabs ---- */
+.mode-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border: 1px solid var(--nyc-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.mode-tab {
+  flex: 1;
+  text-align: center;
+  padding: 8px 0;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  background: #fff;
+  color: var(--nyc-gray);
+  transition: all 0.2s;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.mode-tab.active {
+  background: var(--nyc-green);
+  color: #fff;
+}
+.mode-tab:hover:not(.active) {
+  background: var(--nyc-light-green);
+}
+
+/* ---- Pending Order List ---- */
+.order-list-item {
+  cursor: pointer;
+  transition: background 0.15s;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--nyc-border);
+}
+.order-list-item:hover {
+  background: rgba(22, 119, 255, 0.04);
+}
+.order-list-item.highlighted {
+  background: rgba(22, 119, 255, 0.08);
+  border-left: 3px solid #1677ff;
+  padding-left: 9px;
+}
+.order-list-item.target-highlighted {
+  background: rgba(255, 140, 0, 0.1);
+  border-left: 3px solid #ff8c00;
+  padding-left: 9px;
+}
+.order-list-item .order-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--nyc-gray);
+  margin-top: 4px;
+}
+
+/* ---- Navigation HUD ---- */
+.nav-hud-card {
+  background: linear-gradient(135deg, #1677ff 0%, #0958d9 100%);
+  color: #fff;
+}
+.nav-hud-card .ant-card-head {
+  color: #fff;
+  border-bottom-color: rgba(255, 255, 255, 0.2);
+}
+.nav-hud-card .ant-card-head-title {
+  color: #fff;
+}
+.nav-hud-card .nav-distance {
+  font-size: 36px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  text-align: center;
+  margin: 12px 0;
+}
+.nav-hud-card .nav-bearing {
+  text-align: center;
+  font-size: 16px;
+  opacity: 0.85;
+}
+.nav-hud-card .nav-target-info {
+  text-align: center;
+  font-size: 13px;
+  opacity: 0.75;
+  margin-bottom: 12px;
+}
+.nav-hud-card .ant-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
+}
+.nav-hud-card .ant-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+
+/* ---- Pending Summary ---- */
+.pending-summary {
+  font-size: 12px;
+  color: var(--nyc-gray);
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--nyc-light-green);
+  border-radius: 4px;
+}
+
+/* ---- Photo Wall ---- */
+.photo-wall-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow-y: auto;
+  max-height: 260px;
+}
+
+.photo-wall-item {
+  position: relative;
+  width: calc(50% - 4px);
+  border: 1px solid var(--nyc-border);
+  background: #fff;
+  overflow: hidden;
+}
+
+.photo-wall-img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.photo-wall-img:hover {
+  transform: scale(1.05);
+}
+
+.photo-wall-info {
+  padding: 4px 8px;
+}
+
+.photo-wall-species {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nyc-black);
+}
+
+.photo-wall-meta {
+  display: block;
+  font-size: 11px;
+  color: var(--nyc-gray);
+}
+
+.photo-wall-like {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: #999;
+  padding: 2px 6px;
+  min-width: auto;
+  height: auto;
+}
+
+/* ---- Leaderboard ---- */
+.leaderboard-card {
+  flex-shrink: 0;
+}
+
+.leaderboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.leaderboard-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--nyc-border);
+  background: #fff;
+}
+
+.leaderboard-item.rank-1 { border-left: 3px solid #FFD700; }
+.leaderboard-item.rank-2 { border-left: 3px solid #C0C0C0; }
+.leaderboard-item.rank-3 { border-left: 3px solid #CD7F32; }
+
+.rank-badge {
+  width: 24px;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rank-num {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nyc-gray);
+}
+
+.rank-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--nyc-black);
+}
+
+.rank-count {
+  font-size: 12px;
+  color: var(--nyc-gray);
+  white-space: nowrap;
+}
+
+/* ---- Check-in section (in drawer) ---- */
+.checkin-section {
+  margin-top: 8px;
+  text-align: center;
+}
+
+.checkin-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--nyc-gray);
+}
+
+/* ---- Photo preview modal ---- */
+.photo-preview-container {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+
+.photo-preview-img {
+  max-width: 90vw;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 0;
+}
+
+.photo-preview-info {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.photo-preview-info span:first-child {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+/* ---- Empty hint ---- */
+.empty-hint {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--nyc-gray);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* ---- Responsive: stack right panels below on small screens ---- */
+@media (max-width: 860px) {
+  .guide-right-panels {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    max-height: none;
+    flex-direction: column;
+    padding: 0 14px 14px;
+  }
+
+  .photo-wall-grid {
+    max-height: 200px;
+  }
+}
+
 .route-item {
   padding: 14px;
   border-radius: 0;

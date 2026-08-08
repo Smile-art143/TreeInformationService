@@ -1,10 +1,11 @@
 <script setup>
-import { inject, ref, watch } from "vue";
+import { computed, inject, ref, watch } from "vue";
+import { message } from "ant-design-vue";
 import { Leaf, BookOpen, CalendarDays, Users, Search, X } from "lucide-vue-next";
 import ArcGISTreeMap from "../components/ArcGISTreeMap.vue";
 import FilterPanel from "../components/FilterPanel.vue";
 import StatsPanel from "../components/StatsPanel.vue";
-import { roleLabels } from "../api/mockApi";
+import { computeNextTreeCode, roleLabels } from "../api/mockApi";
 
 const app = inject("appState");
 
@@ -19,6 +20,7 @@ const {
   setSpeciesFilter, setDbhRange, setHealthFilter,
   setHomePanelWidth, setIsResizingHomePanel,
   navigateTo, workOrders, selectedTree,
+  addTree,
 } = app;
 
 const handleResizerMouseDown = (event) => {
@@ -82,6 +84,86 @@ watch(showStatsModal, (val) => {
     window.removeEventListener("keydown", onModalKeydown);
   }
 });
+
+// ---- add tree drawer ----
+const showAddTreeDrawer = ref(false);
+const addTreeForm = ref({
+  species: "",
+  locationDescription: "",
+  dbh: null,
+  longitude: "",
+  latitude: "",
+  treeType: "普通树",
+  protectionLevel: null,
+  healthStatus: "healthy",
+  story: "",
+});
+const addTreePhotos = ref([]);
+
+const nextTreeCode = computed(() => computeNextTreeCode(trees.value));
+
+const treeTypeOptions = [
+  { label: "普通树", value: "普通树" },
+  { label: "古树", value: "古树" },
+];
+
+const protectionLevelOptions = [
+  { label: "一级保护", value: "一级保护" },
+  { label: "二级保护", value: "二级保护" },
+  { label: "三级保护", value: "三级保护" },
+];
+
+const healthStatusOptions = [
+  { label: "正常", value: "healthy" },
+  { label: "异常", value: "problem" },
+];
+
+const toPhotoRecords = (fileList) =>
+  fileList.map((file) => ({
+    uid: file.uid,
+    name: file.name,
+    url: file.url || file.thumbUrl || (file.originFileObj ? URL.createObjectURL(file.originFileObj) : ""),
+  }));
+
+const openAddTreeDrawer = () => {
+  addTreeForm.value = {
+    species: "",
+    locationDescription: "",
+    dbh: null,
+    longitude: "",
+    latitude: "",
+    treeType: "普通树",
+    protectionLevel: null,
+    healthStatus: "healthy",
+    story: "",
+  };
+  addTreePhotos.value = [];
+  showAddTreeDrawer.value = true;
+};
+
+const handleAddTree = () => {
+  if (!addTreeForm.value.species.trim()) {
+    message.error("请输入树种名称");
+    return;
+  }
+  if (!addTreeForm.value.longitude || !addTreeForm.value.latitude) {
+    message.error("请输入坐标");
+    return;
+  }
+  const photos = toPhotoRecords(addTreePhotos.value);
+  addTree({
+    ...addTreeForm.value,
+    photos,
+  });
+  showAddTreeDrawer.value = false;
+  message.success("树木已添加");
+};
+
+watch(() => addTreeForm.value.treeType, (val) => {
+  if (val === "普通树") {
+    addTreeForm.value.protectionLevel = null;
+  }
+});
 </script>
 
 <template>
@@ -115,6 +197,7 @@ watch(showStatsModal, (val) => {
       <a-space wrap class="home-links">
         <a-button type="link" @click="openStatsModal">查看树木统计</a-button>
         <a-button v-if="role !== 'visitor'" type="link" @click="navigateTo('workbench')">进入工单处理</a-button>
+        <a-button v-if="role !== 'visitor'" type="link" @click="openAddTreeDrawer">添加树木</a-button>
       </a-space>
     </section>
 
@@ -271,4 +354,98 @@ watch(showStatsModal, (val) => {
       </div>
     </Transition>
   </Teleport>
+
+  <!-- Add Tree Drawer -->
+  <a-drawer
+    :width="430"
+    :open="showAddTreeDrawer"
+    @close="showAddTreeDrawer = false"
+    title="添加树木"
+  >
+    <a-space direction="vertical" :size="16" class="full-width">
+      <a-form layout="vertical" :model="addTreeForm">
+        <a-form-item label="编号">
+          <a-input :value="nextTreeCode" disabled />
+        </a-form-item>
+
+        <a-form-item label="树种名称" required>
+          <a-input v-model:value="addTreeForm.species" placeholder="例如：银杏、国槐" />
+        </a-form-item>
+
+        <a-form-item label="位置">
+          <a-input v-model:value="addTreeForm.locationDescription" placeholder="例如：山门东侧第三排" />
+        </a-form-item>
+
+        <a-form-item label="胸径 (cm)">
+          <a-input-number
+            v-model:value="addTreeForm.dbh"
+            :min="0"
+            :step="0.1"
+            style="width: 100%"
+            placeholder="例如：35.5"
+          />
+        </a-form-item>
+
+        <a-form-item label="坐标" required>
+          <a-space>
+            <a-input
+              v-model:value="addTreeForm.longitude"
+              placeholder="经度 (longitude)"
+              style="width: 190px"
+            />
+            <a-input
+              v-model:value="addTreeForm.latitude"
+              placeholder="纬度 (latitude)"
+              style="width: 190px"
+            />
+          </a-space>
+        </a-form-item>
+
+        <a-form-item label="类型">
+          <a-select
+            v-model:value="addTreeForm.treeType"
+            :options="treeTypeOptions"
+          />
+        </a-form-item>
+
+        <a-form-item v-if="addTreeForm.treeType === '古树'" label="保护等级">
+          <a-select
+            v-model:value="addTreeForm.protectionLevel"
+            :options="protectionLevelOptions"
+            placeholder="请选择保护等级"
+          />
+        </a-form-item>
+
+        <a-form-item label="资料卡片">
+          <a-textarea
+            v-model:value="addTreeForm.story"
+            :rows="3"
+            placeholder="树木的历史背景、文化故事等"
+          />
+        </a-form-item>
+
+        <a-form-item label="健康状态">
+          <a-select
+            v-model:value="addTreeForm.healthStatus"
+            :options="healthStatusOptions"
+          />
+        </a-form-item>
+
+        <a-form-item label="树木照片">
+          <a-upload
+            v-model:file-list="addTreePhotos"
+            :before-upload="() => false"
+            :max-count="3"
+            list-type="picture"
+          >
+            <a-button>选择照片</a-button>
+          </a-upload>
+        </a-form-item>
+
+        <a-form-item>
+          <a-button type="primary" block @click="handleAddTree">添加</a-button>
+        </a-form-item>
+      </a-form>
+    </a-space>
+  </a-drawer>
 </template>

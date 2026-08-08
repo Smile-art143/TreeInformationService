@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, inject } from "vue";
 import { Camera, Clock3, MapPinned, Route as RouteIcon } from "lucide-vue-next";
 import { message } from "ant-design-vue";
 
@@ -9,7 +9,9 @@ const props = defineProps({
 
 const emit = defineEmits(["focusTree"]);
 
-const routePresets = [
+const { role } = inject("appState");
+
+const allRoutePresets = [
   {
     id: "photo",
     name: "拍照机位路线",
@@ -36,7 +38,13 @@ const routePresets = [
   },
 ];
 
-const selectedRoute = ref(routePresets[0]);
+const routePresets = computed(() =>
+  role.value === "visitor"
+    ? allRoutePresets.filter((r) => r.id !== "care")
+    : allRoutePresets
+);
+
+const selectedRoute = ref(allRoutePresets[0]);
 
 const routeTrees = computed(() => {
   return selectedRoute.value.species

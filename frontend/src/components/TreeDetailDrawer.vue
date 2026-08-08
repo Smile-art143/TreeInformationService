@@ -157,9 +157,17 @@ const submitLead = () => {
       </a-descriptions>
 
       <div class="story-block">
-        <div class="section-title">树木资料</div>
+        <div class="section-title">资料卡片</div>
+      <p>{{ tree.story }}</p>
+      </div>
+      
+      <a-button v-if="canEditHealth" type="default" size="small" @click="startEditArchive">
+            编辑树木档案
+          </a-button>
+      
 
-        <template v-if="isEditingArchive">
+      <template v-if="isEditingArchive">
+        <div class="story-block">
           <a-form layout="vertical" class="archive-edit-form">
             <a-form-item label="树种">
               <a-input v-model:value="archiveForm.species" />
@@ -167,7 +175,7 @@ const submitLead = () => {
             <a-form-item label="胸径">
               <a-input v-model:value="archiveForm.dbh" />
             </a-form-item>
-            <a-form-item label="树木故事">
+            <a-form-item label="资料卡片">
               <a-textarea v-model:value="archiveForm.story" :rows="3" />
             </a-form-item>
             <a-space>
@@ -175,18 +183,11 @@ const submitLead = () => {
               <a-button @click="cancelEditArchive">取消</a-button>
             </a-space>
           </a-form>
+          </div>
         </template>
-        <template v-else>
-           <p>{{ tree.story }}</p>
-        </template>
-      </div>
-
-      
+        
       
           
-          <a-button v-if="canEditHealth" type="default" size="small" @click="startEditArchive">
-            编辑树木档案
-          </a-button>
         
       <div v-if="canEditHealth" class="edit-box">
         <div class="section-title"><HeartPulse :size="16" />健康状态</div>
