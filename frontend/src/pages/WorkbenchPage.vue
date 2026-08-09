@@ -11,6 +11,7 @@ const {
   setSelectedOrder,
   updateWorkOrder,
   createWorkOrder,
+  deleteVisitorLead,
   convertVisitorLeadToWorkOrder,
   updateTree,
 } = inject("appState");
@@ -27,6 +28,7 @@ const {
     @update-order="updateWorkOrder"
     @create-order="createWorkOrder"
     @convert-lead="convertVisitorLeadToWorkOrder"
+    @delete-lead="deleteVisitorLead"
     @update-tree="updateTree"
   />
 </template>

@@ -36,9 +36,8 @@ export const issueTypes = ["病虫害", "倾斜", "枯枝", "根系隆起", "树
 
 export const organizations = [
   { label: "公众访问", value: "public" },
-  { label: "西安市园林养护一组", value: "garden-team-1" },
-  { label: "古树名木专项组", value: "ancient-tree-team" },
-  { label: "大兴善寺巡检组", value: "daxingshansi-inspection" },
+  { label: "大兴善寺", value: "daxingshansi" },
+  { label: "唐大慈恩寺遗址公园", value: "tangdacien-temple-park" },
 ];
 
 export const speciesPalette = [
@@ -84,6 +83,91 @@ export function getDbhSize(dbh) {
   if (dbh >= 30) return 12;
   if (dbh >= 15) return 9;
   return 7;
+}
+
+export function computeNextTreeCode(trees) {
+  let maxNum = 0;
+  let prefix = "DX";
+  trees.forEach((tree) => {
+    const match = tree.id && tree.id.match(/^([A-Z]+)-(\d+)$/);
+    if (match) {
+      const num = parseInt(match[2], 10);
+      if (num > maxNum) {
+        maxNum = num;
+        prefix = match[1];
+      }
+    }
+  });
+  return `${prefix}-${maxNum + 1}`;
+}
+
+export function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // Earth radius in meters
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+export function fetchNearbyTreesMock(trees, lat, lon, radiusM) {
+  return new Promise((resolve) => {
+    const delay = 300 + Math.random() * 500;
+    setTimeout(() => {
+      resolve(findNearbyTrees(trees, lat, lon, radiusM));
+    }, delay);
+  });
+}
+
+export function findNearbyTrees(trees, lat, lon, radiusM) {
+  return trees
+    .filter((tree) => {
+      if (tree.latitude == null || tree.longitude == null) return false;
+      const dist = haversineDistance(lat, lon, tree.latitude, tree.longitude);
+      return dist <= radiusM;
+    })
+    .map((tree) => {
+      const distance = haversineDistance(lat, lon, tree.latitude, tree.longitude);
+      return { ...tree, distance: Math.round(distance * 10) / 10 };
+    })
+    .sort((a, b) => a.distance - b.distance);
+}
+
+export function calculateBearing(lat1, lon1, lat2, lon2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const toDeg = (rad) => (rad * 180) / Math.PI;
+  const dLon = toRad(lon2 - lon1);
+  const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+  const brng = toDeg(Math.atan2(y, x));
+  return (brng + 360) % 360;
+}
+
+export function bearingToText(degrees) {
+  const d = ((degrees % 360) + 360) % 360;
+  const compass = ["北", "东北", "东", "东南", "南", "西南", "西", "西北"];
+  const idx = Math.round(d / 45) % 8;
+  const cardinalCenter = idx * 45;
+  const diff = Math.round(d - cardinalCenter);
+
+  if (Math.abs(diff) < 5) return compass[idx];
+
+  if (diff > 0) {
+    return `${compass[idx]}偏右${Math.abs(diff)}°`;
+  } else {
+    return `${compass[idx]}偏左${Math.abs(diff)}°`;
+  }
+}
+
+export function getPendingOrdersForRole(workOrders, role) {
+  const status = role === "maintenance" ? "processing" : "reviewing";
+  return workOrders.filter((o) => o.status === status);
 }
 
 export function buildStats(list) {
@@ -156,11 +240,12 @@ export function createInitialWorkOrders(list) {
       issueType: issueTypes[index % issueTypes.length],
       issueDescription: `${tree.species}存在现场巡查记录，需要养护人员进一步确认。`,
       creatorRole: index % 2 === 0 ? "inspector" : "maintenance",
-      creatorName: index % 2 === 0 ? "巡检人员" : "养护人员",
+      creatorName: index % 2 === 0 ? "巡检员小王" : "养护员老李",
       createPhotos: tree.photos.slice(0, 1).map((url) => createPhotoRecord(url, "创建照片")),
       treatmentMeasures: processedAt ? "已完成现场清理并设置继续观察标记。" : undefined,
+      handlerName: processedAt ? "养护员老李" : undefined,
       treatmentPhotos: processedAt ? tree.photos.slice(0, 1).map((url) => createPhotoRecord(url, "处置照片")) : [],
-      reviewUserName: reviewedAt ? "巡检人员" : undefined,
+      reviewerName: reviewedAt ? "巡检员小王" : undefined,
       reviewResult: reviewedAt ? "passed" : undefined,
       reviewComment: reviewedAt ? "处置效果达标，归档。" : undefined,
       createdAt,

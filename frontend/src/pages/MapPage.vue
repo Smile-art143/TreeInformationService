@@ -1,9 +1,11 @@
 <script setup>
-import { inject } from "vue";
-import { Leaf, BookOpen, CalendarDays, Users, Search } from "lucide-vue-next";
+import { computed, inject, ref, watch } from "vue";
+import { message } from "ant-design-vue";
+import { Leaf, BookOpen, CalendarDays, Users, Search, X } from "lucide-vue-next";
 import ArcGISTreeMap from "../components/ArcGISTreeMap.vue";
 import FilterPanel from "../components/FilterPanel.vue";
-import { roleLabels } from "../api/mockApi";
+import StatsPanel from "../components/StatsPanel.vue";
+import { computeNextTreeCode, roleLabels } from "../api/mockApi";
 
 const app = inject("appState");
 
@@ -18,6 +20,7 @@ const {
   setSpeciesFilter, setDbhRange, setHealthFilter,
   setHomePanelWidth, setIsResizingHomePanel,
   navigateTo, workOrders, selectedTree,
+  addTree,
 } = app;
 
 const handleResizerMouseDown = (event) => {
@@ -48,6 +51,119 @@ const onSpeciesChange = (val) => setSpeciesFilter(val);
 const onDbhRangeChange = (val) => setDbhRange(val);
 const onHealthChange = (val) => setHealthFilter(val);
 const onReset = () => resetMapFilters();
+
+// ---- stats modal ----
+const showStatsModal = ref(false);
+
+const openStatsModal = () => {
+  showStatsModal.value = true;
+};
+
+const closeStatsModal = () => {
+  showStatsModal.value = false;
+};
+
+const onModalBackdropClick = (event) => {
+  if (event.target === event.currentTarget) {
+    closeStatsModal();
+  }
+};
+
+const onModalKeydown = (event) => {
+  if (event.key === "Escape") {
+    closeStatsModal();
+  }
+};
+
+watch(showStatsModal, (val) => {
+  if (val) {
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onModalKeydown);
+  } else {
+    document.body.style.overflow = "";
+    window.removeEventListener("keydown", onModalKeydown);
+  }
+});
+
+// ---- add tree drawer ----
+const showAddTreeDrawer = ref(false);
+const addTreeForm = ref({
+  species: "",
+  locationDescription: "",
+  dbh: null,
+  longitude: "",
+  latitude: "",
+  treeType: "普通树",
+  protectionLevel: null,
+  healthStatus: "healthy",
+  story: "",
+});
+const addTreePhotos = ref([]);
+
+const nextTreeCode = computed(() => computeNextTreeCode(trees.value));
+
+const treeTypeOptions = [
+  { label: "普通树", value: "普通树" },
+  { label: "古树", value: "古树" },
+];
+
+const protectionLevelOptions = [
+  { label: "一级保护", value: "一级保护" },
+  { label: "二级保护", value: "二级保护" },
+  { label: "三级保护", value: "三级保护" },
+];
+
+const healthStatusOptions = [
+  { label: "正常", value: "healthy" },
+  { label: "异常", value: "problem" },
+];
+
+const toPhotoRecords = (fileList) =>
+  fileList.map((file) => ({
+    uid: file.uid,
+    name: file.name,
+    url: file.url || file.thumbUrl || (file.originFileObj ? URL.createObjectURL(file.originFileObj) : ""),
+  }));
+
+const openAddTreeDrawer = () => {
+  addTreeForm.value = {
+    species: "",
+    locationDescription: "",
+    dbh: null,
+    longitude: "",
+    latitude: "",
+    treeType: "普通树",
+    protectionLevel: null,
+    healthStatus: "healthy",
+    story: "",
+  };
+  addTreePhotos.value = [];
+  showAddTreeDrawer.value = true;
+};
+
+const handleAddTree = () => {
+  if (!addTreeForm.value.species.trim()) {
+    message.error("请输入树种名称");
+    return;
+  }
+  if (!addTreeForm.value.longitude || !addTreeForm.value.latitude) {
+    message.error("请输入坐标");
+    return;
+  }
+  const photos = toPhotoRecords(addTreePhotos.value);
+  addTree({
+    ...addTreeForm.value,
+    photos,
+  });
+  showAddTreeDrawer.value = false;
+  message.success("树木已添加");
+};
+
+watch(() => addTreeForm.value.treeType, (val) => {
+  if (val === "普通树") {
+    addTreeForm.value.protectionLevel = null;
+  }
+});
 </script>
 
 <template>
@@ -79,44 +195,38 @@ const onReset = () => resetMapFilters();
       <h1>西安城市树木</h1>
       <p>点击地图上的树木点位查看完整档案，使用筛选器按树种、胸径和健康状态缩小范围。</p>
       <a-space wrap class="home-links">
-        <a-button type="link" @click="navigateTo('dashboard')">查看树木统计</a-button>
+        <a-button type="link" @click="openStatsModal">查看树木统计</a-button>
         <a-button v-if="role !== 'visitor'" type="link" @click="navigateTo('workbench')">进入工单处理</a-button>
+        <a-button v-if="role !== 'visitor'" type="link" @click="openAddTreeDrawer">添加树木</a-button>
       </a-space>
     </section>
 
-    <!-- Census Callout -->
-    <section class="home-section census-callout">
-      <div class="callout-icon"><Leaf :size="34" /></div>
-      <div>
-        <h2>大兴善寺树木普查</h2>
-        <p>已整理 437 条树木记录，用于支撑地图展示、导览推荐和养护管理。</p>
-        <a-button type="primary" @click="navigateTo('guide')">参与导览</a-button>
-      </div>
-    </section>
-
     <!-- Citywide Statistics -->
-    <section class="home-section">
-      <h2>Citywide Statistics</h2>
+    <section class="home-section stats-section">
+      <h2>城市树木概览</h2>
       <div class="city-stat-grid">
-        <div><strong>{{ stats.totalTrees.toLocaleString() }}</strong><span>树木入图</span></div>
-        <div><strong>{{ workOrders.length.toLocaleString() }}</strong><span>养护记录</span></div>
-        <div><strong>{{ trees.filter((tree) => tree.isAncient).length.toLocaleString() }}</strong><span>古树名木</span></div>
-        <div><strong>{{ stats.speciesCount.toLocaleString() }}</strong><span>树种数量</span></div>
-      </div>
-      <div v-if="topSpecies" class="most-common">
-        <span class="leaf-chip" :style="{ background: speciesColors[topSpecies.species] }" />
-        <div>
-          <button type="button" @click="setSpeciesFilter([topSpecies.species])">
-            {{ topSpecies.species }}
-          </button>
-          <p>最常见树种，{{ topSpecies.count }} 棵，占当前数据 {{ topSpecies.percentage }}%。</p>
+        <div class="stat-card">
+          <strong>{{ stats.totalTrees.toLocaleString() }}</strong>
+          <span>树木入图</span>
+        </div>
+        <div class="stat-card">
+          <strong>{{ workOrders.length.toLocaleString() }}</strong>
+          <span>养护记录</span>
+        </div>
+        <div class="stat-card">
+          <strong>{{ trees.filter((tree) => tree.isAncient).length.toLocaleString() }}</strong>
+          <span>古树名木</span>
+        </div>
+        <div class="stat-card">
+          <strong>{{ stats.speciesCount.toLocaleString() }}</strong>
+          <span>树种数量</span>
         </div>
       </div>
     </section>
 
     <!-- Recent Activities -->
-    <section class="home-section activity-section">
-      <h2>Recent Tree Care Activities</h2>
+    <section v-if="role !== 'visitor'" class="home-section activity-section">
+      <h2>树木养护活动</h2>
       <button
         v-for="order in recentWorkOrders"
         :key="order.id"
@@ -133,7 +243,7 @@ const onReset = () => resetMapFilters();
       </button>
     </section>
 
-    <!-- Split Actions -->
+ <!-- Split Actions -->
     <section class="home-section split-actions">
       <div>
         <h2>Learn</h2>
@@ -146,6 +256,32 @@ const onReset = () => resetMapFilters();
         <a-button type="link" @click="navigateTo('routes')"><CalendarDays :size="16" />路线推荐</a-button>
       </div>
     </section>
+
+    <!-- 生态效益估算 -->
+    <section class="home-section eco-section">
+      <h2>生态效益</h2>
+      <div class="eco-stat-grid">
+        <div class="eco-stat-card">
+          <span class="eco-stat-value">{{ stats.ecologicalBenefits.stormwaterIntercepted.toLocaleString() }} <small>L</small></span>
+          <span class="eco-stat-label">年雨水截留估算</span>
+        </div>
+        <div class="eco-stat-card">
+          <span class="eco-stat-value">{{ stats.ecologicalBenefits.carbonSequestration.toLocaleString() }} <small>kg</small></span>
+          <span class="eco-stat-label">年固碳</span>
+        </div>
+        <div class="eco-stat-card">
+          <span class="eco-stat-value">{{ stats.ecologicalBenefits.oxygenProduction.toLocaleString() }} <small>kg</small></span>
+          <span class="eco-stat-label">年产氧</span>
+        </div>
+        <div class="eco-stat-card">
+          <span class="eco-stat-value">{{ stats.ecologicalBenefits.airPollutionRemoved.toLocaleString() }} <small>kg</small></span>
+          <span class="eco-stat-label">空气污染物移除</span>
+        </div>
+      </div>
+    </section>
+    
+
+   
 
     <!-- Role Note -->
     <section class="home-section role-note">
@@ -194,4 +330,122 @@ const onReset = () => resetMapFilters();
     <div class="map-key-row"><span class="size-dot medium" /> 中胸径</div>
     <div class="map-key-row"><span class="size-dot large" /> 大胸径</div>
   </div>
+
+  <!-- Stats Modal -->
+  <Teleport to="body">
+    <Transition name="stats-modal">
+      <div
+        v-if="showStatsModal"
+        class="stats-modal-backdrop"
+        @click="onModalBackdropClick"
+      >
+        <div class="stats-modal-container">
+          <button
+            type="button"
+            class="stats-modal-close"
+            aria-label="关闭统计面板"
+            title="关闭 (Esc)"
+            @click="closeStatsModal"
+          >
+            <X :size="20" />
+          </button>
+          <StatsPanel :stats="stats" />
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <!-- Add Tree Drawer -->
+  <a-drawer
+    :width="430"
+    :open="showAddTreeDrawer"
+    @close="showAddTreeDrawer = false"
+    title="添加树木"
+  >
+    <a-space direction="vertical" :size="16" class="full-width">
+      <a-form layout="vertical" :model="addTreeForm">
+        <a-form-item label="编号">
+          <a-input :value="nextTreeCode" disabled />
+        </a-form-item>
+
+        <a-form-item label="树种名称" required>
+          <a-input v-model:value="addTreeForm.species" placeholder="例如：银杏、国槐" />
+        </a-form-item>
+
+        <a-form-item label="位置">
+          <a-input v-model:value="addTreeForm.locationDescription" placeholder="例如：山门东侧第三排" />
+        </a-form-item>
+
+        <a-form-item label="胸径 (cm)">
+          <a-input-number
+            v-model:value="addTreeForm.dbh"
+            :min="0"
+            :step="0.1"
+            style="width: 100%"
+            placeholder="例如：35.5"
+          />
+        </a-form-item>
+
+        <a-form-item label="坐标" required>
+          <a-space>
+            <a-input
+              v-model:value="addTreeForm.longitude"
+              placeholder="经度 (longitude)"
+              style="width: 190px"
+            />
+            <a-input
+              v-model:value="addTreeForm.latitude"
+              placeholder="纬度 (latitude)"
+              style="width: 190px"
+            />
+          </a-space>
+        </a-form-item>
+
+        <a-form-item label="类型">
+          <a-select
+            v-model:value="addTreeForm.treeType"
+            :options="treeTypeOptions"
+          />
+        </a-form-item>
+
+        <a-form-item v-if="addTreeForm.treeType === '古树'" label="保护等级">
+          <a-select
+            v-model:value="addTreeForm.protectionLevel"
+            :options="protectionLevelOptions"
+            placeholder="请选择保护等级"
+          />
+        </a-form-item>
+
+        <a-form-item label="资料卡片">
+          <a-textarea
+            v-model:value="addTreeForm.story"
+            :rows="3"
+            placeholder="树木的历史背景、文化故事等"
+          />
+        </a-form-item>
+
+        <a-form-item label="健康状态">
+          <a-select
+            v-model:value="addTreeForm.healthStatus"
+            :options="healthStatusOptions"
+          />
+        </a-form-item>
+
+        <a-form-item label="树木照片">
+          <a-upload
+            v-model:file-list="addTreePhotos"
+            :before-upload="() => false"
+            :max-count="3"
+            list-type="picture"
+          >
+            <a-button>选择照片</a-button>
+          </a-upload>
+        </a-form-item>
+
+        <a-form-item>
+          <a-button type="primary" block @click="handleAddTree">添加</a-button>
+        </a-form-item>
+      </a-form>
+    </a-space>
+  </a-drawer>
 </template>

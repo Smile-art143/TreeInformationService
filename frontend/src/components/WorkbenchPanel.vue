@@ -1,6 +1,6 @@
 <script setup>
-import { computed, ref, watch } from "vue";
-import { CheckCircle2, ClipboardList, Download, Plus, RotateCcw, Wrench } from "lucide-vue-next";
+import { computed, inject, ref, watch } from "vue";
+import { CheckCircle2, ClipboardList, Download, Navigation, Plus, RotateCcw, Wrench } from "lucide-vue-next";
 import { message } from "ant-design-vue";
 import { healthLabels, healthOptions, issueTypes, leadStatusLabels, roleLabels, statusLabels } from "../api/mockApi";
 
@@ -12,7 +12,15 @@ const props = defineProps({
   selectedOrder: { type: Object, default: null },
 });
 
-const emit = defineEmits(["selectOrder", "updateOrder", "createOrder", "convertLead", "updateTree"]);
+const emit = defineEmits(["selectOrder", "updateOrder", "createOrder", "convertLead", "updateTree", "deleteLead"]);
+
+const { currentUser, currentUserName, navigateToGuideWithOrder } = inject("appState");
+
+function jumpToGuide() {
+  if (props.selectedOrder) {
+    navigateToGuideWithOrder(props.selectedOrder.id);
+  }
+}
 
 const statusColor = {
   created: "default",
@@ -44,6 +52,7 @@ const createForm = ref({
 const canCreateOrder = computed(() => props.role === "inspector" || props.role === "maintenance");
 const canReview = computed(() => props.role === "inspector");
 const canTreat = computed(() => props.role === "maintenance");
+const currentWorkUserName = computed(() => currentUserName?.value ?? currentUser?.value?.username ?? roleLabels[props.role]);
 
 const treeOptions = computed(() =>
   props.trees.map((tree) => ({
@@ -117,6 +126,7 @@ const resetCreateForm = () => {
     treeId: undefined,
     issueType: issueTypes[0],
     issueDescription: "",
+    locationDescription: "",
     healthStatus: "problem",
   };
   createPhotos.value = [];
@@ -144,8 +154,10 @@ const createOrder = () => {
     status: "processing",
     issueType: createForm.value.issueType,
     issueDescription: createForm.value.issueDescription,
+    locationDescription: createForm.value.locationDescription,
+    creatorId: currentUser?.value?.id,
     creatorRole: props.role,
-    creatorName: roleLabels[props.role],
+    creatorName: currentWorkUserName.value,
     createPhotos: toPhotoRecords(createPhotos.value),
     treatmentPhotos: [],
     createdAt: now,
@@ -180,6 +192,8 @@ const submitTreatment = (order) => {
   emit("updateOrder", {
     ...order,
     status: "reviewing",
+    handlerId: currentUser?.value?.id,
+    handlerName: currentWorkUserName.value,
     treatmentMeasures: treatmentForm.value.treatmentMeasures,
     treatmentPhotos: toPhotoRecords(treatmentPhotos.value),
     processedAt: now,
@@ -204,8 +218,8 @@ const reviewOrder = (order, passed) => {
   emit("updateOrder", {
     ...order,
     status: passed ? "archived" : "processing",
-    reviewUserName: "巡检人员",
-    reviewTime: now,
+    reviewerId: currentUser?.value?.id,
+    reviewerName: currentWorkUserName.value,
     reviewedAt: now,
     archivedAt: passed ? now : order.archivedAt,
     reviewResult: passed ? "passed" : "rework",
@@ -217,14 +231,44 @@ const reviewOrder = (order, passed) => {
   message.success(passed ? "工单已复核归档" : "工单已退回待处置");
 };
 
-const convertLead = (lead) => {
+const viewingLead = ref(null);
+const leadEditForm = ref({ issueType: "", issueDescription: "", locationDescription: "" });
+const leadHealthStatus = ref("healthy");
+
+const openLeadDrawer = (lead) => {
+  viewingLead.value = lead;
+  leadEditForm.value = {
+    issueType: lead.issueType || "",
+    issueDescription: lead.issueDescription || "",
+    locationDescription: lead.locationDescription || "",
+  };
+  leadHealthStatus.value = lead.healthStatus || "healthy";
+};
+
+const convertLeadFromDrawer = () => {
+  if (!viewingLead.value) return;
   if (props.role !== "inspector") {
     message.error("只有巡检人员可以将游客线索转为正式工单");
     return;
   }
-  emit("convertLead", lead);
+  const updatedLead = {
+    ...viewingLead.value,
+    issueType: leadEditForm.value.issueType,
+    issueDescription: leadEditForm.value.issueDescription,
+    locationDescription: leadEditForm.value.locationDescription,
+    healthStatus: leadHealthStatus.value,
+  };
+  emit("convertLead", updatedLead);
+  viewingLead.value = null;
   activeTab.value = "orders";
   message.success("游客线索已转为正式工单");
+};
+
+const deleteLeadFromDrawer = () => {
+  if (!viewingLead.value) return;
+  emit("deleteLead", viewingLead.value.id);
+  viewingLead.value = null;
+  message.success("游客线索已删除");
 };
 
 const columns = [
@@ -274,7 +318,7 @@ const leadColumns = [
         <Plus :size="18" />
         <span>创建正式工单</span>
       </div>
-      <a-form layout="vertical" @finish="createOrder">
+      <a-form layout="vertical" :model="createForm" @finish="createOrder">
         <div class="work-order-form-grid">
           <a-form-item label="树木" required>
             <a-select
@@ -294,6 +338,9 @@ const leadColumns = [
         </div>
         <a-form-item label="问题描述" required>
           <a-textarea v-model:value="createForm.issueDescription" :rows="3" placeholder="描述现场问题、位置和初步判断" />
+        </a-form-item>
+        <a-form-item label="相对位置">
+            <a-input v-model:value="createForm.locationDescription" placeholder="例如：山门东侧第三排、碑亭北侧" />
         </a-form-item>
         <a-form-item label="创建照片" required>
           <a-upload v-model:file-list="createPhotos" :before-upload="() => false" :max-count="4" list-type="picture">
@@ -346,22 +393,28 @@ const leadColumns = [
               </template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
-                  <a-button size="small" @click="emit('selectOrder', record)">详情</a-button>
+                  <a-button
+                    v-if="!(canReview && record.status === 'reviewing') && !(canTreat && record.status === 'processing')"
+                    size="small"
+                    @click="emit('selectOrder', record)"
+                  >
+                    详情
+                  </a-button>
                   <a-button
                     v-if="canTreat && record.status === 'processing'"
                     size="small"
                     type="primary"
-                    @click="emit('selectOrder', record)"
+                    @click="navigateToGuideWithOrder(record.id)"
                   >
-                    <Wrench :size="14" />处置
+                    <Navigation :size="14" />处置
                   </a-button>
                   <a-button
                     v-if="canReview && record.status === 'reviewing'"
                     size="small"
                     type="primary"
-                    @click="emit('selectOrder', record)"
+                    @click="navigateToGuideWithOrder(record.id)"
                   >
-                    <CheckCircle2 :size="14" />复核
+                    <Navigation :size="14" />复核
                   </a-button>
                 </a-space>
               </template>
@@ -386,9 +439,7 @@ const leadColumns = [
               </template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
-                  <a-button size="small" @click="convertLead(record)" :disabled="record.status !== 'new' || role !== 'inspector'">
-                    转工单
-                  </a-button>
+                  <a-button size="small" @click="openLeadDrawer(record)">查看</a-button>
                 </a-space>
               </template>
             </template>
@@ -400,12 +451,23 @@ const leadColumns = [
     <a-drawer :width="460" :open="Boolean(selectedOrder)" @close="emit('selectOrder', null)" title="工单详情">
       <a-space v-if="selectedOrder" direction="vertical" :size="16" class="full-width">
         <a-tag :color="statusColor[selectedOrder.status]">{{ statusLabels[selectedOrder.status] }}</a-tag>
+        <a-button
+          v-if="(canTreat && selectedOrder.status === 'processing') || (canReview && selectedOrder.status === 'reviewing')"
+          type="link"
+          @click="jumpToGuide"
+          style="margin-left: 8px;"
+        >
+          <Navigation :size="14" /> 导航前往
+        </a-button>
 
         <a-descriptions bordered size="small" :column="1">
           <a-descriptions-item label="工单编号"><span class="data-value">{{ selectedOrder.orderNo }}</span></a-descriptions-item>
           <a-descriptions-item label="问题类型">{{ selectedOrder.issueType }}</a-descriptions-item>
           <a-descriptions-item label="问题描述">{{ selectedOrder.issueDescription }}</a-descriptions-item>
+          <a-descriptions-item label="相对位置">{{ selectedOrder.locationDescription }}</a-descriptions-item>
           <a-descriptions-item label="创建人">{{ selectedOrder.creatorName ?? roleLabels[selectedOrder.creatorRole] }}</a-descriptions-item>
+          <a-descriptions-item label="处置人">{{ selectedOrder.handlerName ?? "未处置" }}</a-descriptions-item>
+          <a-descriptions-item label="复核人">{{ selectedOrder.reviewerName ?? "未复核" }}</a-descriptions-item>
           <a-descriptions-item label="创建时间">{{ selectedOrder.createdAt }}</a-descriptions-item>
           <a-descriptions-item label="处置时间">{{ selectedOrder.processedAt ?? "未处置" }}</a-descriptions-item>
           <a-descriptions-item label="复核时间">{{ selectedOrder.reviewedAt ?? "未复核" }}</a-descriptions-item>
@@ -415,8 +477,9 @@ const leadColumns = [
         <a-descriptions v-if="selectedTree" bordered size="small" :column="1">
           <a-descriptions-item label="树木编号"><span class="data-value">{{ selectedTree.code }}</span></a-descriptions-item>
           <a-descriptions-item label="树种">{{ selectedTree.species }}</a-descriptions-item>
+          <a-descriptions-item label="胸径">{{ selectedTree.dbh ? selectedTree.dbh + ' cm' : '未记录' }}</a-descriptions-item>
           <a-descriptions-item label="健康状态">{{ healthLabels[selectedTree.healthStatus] }}</a-descriptions-item>
-          <a-descriptions-item label="相对位置">{{ selectedTree.locationDescription }}</a-descriptions-item>
+          
         </a-descriptions>
 
         <div v-if="selectedOrder.createPhotos?.length" class="story-block">
@@ -441,7 +504,7 @@ const leadColumns = [
 
         <div v-if="canTreat && selectedOrder.status === 'processing'" class="edit-box">
           <div class="section-title"><Wrench :size="16" />处置反馈</div>
-          <a-form layout="vertical" @finish="submitTreatment(selectedOrder)">
+          <a-form layout="vertical" :model="treatmentForm" @finish="submitTreatment(selectedOrder)">
             <a-form-item label="处置措施" required>
               <a-textarea v-model:value="treatmentForm.treatmentMeasures" :rows="4" placeholder="填写修剪、清理、支撑、病虫害处理等措施" />
             </a-form-item>
@@ -471,6 +534,71 @@ const leadColumns = [
             </a-space>
           </a-form>
         </div>
+      </a-space>
+    </a-drawer>
+
+    <a-drawer :width="430" :open="Boolean(viewingLead)" @close="viewingLead = null" title="游客线索">
+      <a-space v-if="viewingLead" direction="vertical" :size="16" class="full-width">
+        <a-tag :color="leadStatusColor[viewingLead.status]">{{ leadStatusLabels[viewingLead.status] }}</a-tag>
+
+        <a-descriptions bordered size="small" :column="1">
+          <a-descriptions-item label="工单编号">
+            <span class="data-value">{{ viewingLead.leadNo }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="提交时间">{{ viewingLead.createdAt }}</a-descriptions-item>
+        </a-descriptions>
+
+        <a-descriptions v-if="getTreeForLead(viewingLead)" bordered size="small" :column="1">
+          <a-descriptions-item label="树木编号">
+            <span class="data-value">{{ getTreeForLead(viewingLead).code }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="树种">{{ getTreeForLead(viewingLead).species }}</a-descriptions-item>
+        </a-descriptions>
+
+        <div class="edit-box">
+          <div class="section-title">线索信息</div>
+          <a-form layout="vertical">
+            <a-form-item label="问题类型">
+              <a-select
+                v-model:value="leadEditForm.issueType"
+                :options="issueTypes.map((t) => ({ label: t, value: t }))"
+              />
+            </a-form-item>
+            <a-form-item label="问题描述">
+              <a-textarea v-model:value="leadEditForm.issueDescription" :rows="3" />
+            </a-form-item>
+            <a-form-item label="相对位置">
+              <a-input v-model:value="leadEditForm.locationDescription" />
+            </a-form-item>
+            <a-form-item label="健康状态">
+              <a-select
+                v-model:value="leadHealthStatus"
+                :options="[
+                  { label: '正常', value: 'healthy' },
+                  { label: '异常', value: 'problem' },
+                ]"
+              />
+            </a-form-item>
+          </a-form>
+        </div>
+
+        <div v-if="viewingLead.photos?.length" class="story-block">
+          <div class="section-title">现场照片</div>
+          <div class="photo-strip">
+            <img v-for="photo in viewingLead.photos" :key="photo.uid" :src="photo.url" :alt="photo.name" />
+          </div>
+        </div>
+
+        <a-space>
+          <a-button
+            type="primary"
+            @click="convertLeadFromDrawer"
+            :disabled="viewingLead.status !== 'new' || role !== 'inspector'"
+          >
+            转工单
+          </a-button>
+          <a-button danger @click="deleteLeadFromDrawer">删除</a-button>
+        </a-space>
       </a-space>
     </a-drawer>
   </div>
