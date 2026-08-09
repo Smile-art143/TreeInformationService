@@ -32,6 +32,7 @@ const loginForm = ref({
 
 const registerForm = ref({
   account: "",
+  username: "",
   password: "",
   confirmPassword: "",
   role: "visitor",
@@ -67,8 +68,8 @@ const submitLogin = async () => {
 };
 
 const submitRegister = async () => {
-  if (!registerForm.value.account || !registerForm.value.password || !registerForm.value.role) {
-    message.error("请填写账号、密码并选择角色");
+  if (!registerForm.value.account || !registerForm.value.username || !registerForm.value.password || !registerForm.value.role) {
+    message.error("请填写账号、用户名/姓名、密码并选择角色");
     return;
   }
   if (registerForm.value.password !== registerForm.value.confirmPassword) {
@@ -90,6 +91,7 @@ const submitRegister = async () => {
     };
     registerForm.value = {
       account: "",
+      username: "",
       password: "",
       confirmPassword: "",
       role: "visitor",
@@ -176,7 +178,10 @@ const submitRegister = async () => {
         <a-tab-pane key="register" tab="注册">
           <a-form layout="vertical" @finish="submitRegister">
             <a-form-item label="账号" required>
-              <a-input v-model:value="registerForm.account" placeholder="输入手机号或用户名" />
+              <a-input v-model:value="registerForm.account" placeholder="输入手机号或登录账号" />
+            </a-form-item>
+            <a-form-item label="用户名/姓名" required>
+              <a-input v-model:value="registerForm.username" placeholder="用于工单、线索和打卡展示" />
             </a-form-item>
             <a-form-item label="密码" required>
               <a-input-password v-model:value="registerForm.password" />
