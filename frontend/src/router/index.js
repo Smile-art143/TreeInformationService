@@ -6,6 +6,8 @@ const routes = [
   { path: "/workbench", name: "workbench", component: () => import("../pages/WorkbenchPage.vue") },
   { path: "/guide", name: "guide", component: () => import("../pages/GuidePage.vue") },
   { path: "/routes", name: "routes", component: () => import("../pages/RoutesPage.vue") },
+  { path: "/mobile", redirect: "/mobile/map" },
+  { path: "/mobile/:tab(map|guide|tasks|me)?", name: "mobile", component: () => import("../pages/MobilePage.vue") },
 ];
 
 const router = createRouter({

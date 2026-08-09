@@ -9,6 +9,7 @@ import { organizations, roleLabels } from "../api/mockApi";
 
 const props = defineProps({
   initialRole: { type: String, default: "inspector" },
+  mobile: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["enter"]);
@@ -108,7 +109,7 @@ const submitRegister = async () => {
 </script>
 
 <template>
-  <main class="login-page">
+  <main class="login-page" :class="{ 'mobile-login-page': mobile }">
     <section class="login-hero">
       <div class="login-brand">
         <div class="brand-mark login-brand-mark">
