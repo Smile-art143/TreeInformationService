@@ -14,7 +14,7 @@ const props = defineProps({
 
 const emit = defineEmits(["selectOrder", "updateOrder", "createOrder", "convertLead", "updateTree", "deleteLead"]);
 
-const { navigateToGuideWithOrder } = inject("appState");
+const { currentUser, currentUserName, navigateToGuideWithOrder } = inject("appState");
 
 function jumpToGuide() {
   if (props.selectedOrder) {
@@ -52,6 +52,7 @@ const createForm = ref({
 const canCreateOrder = computed(() => props.role === "inspector" || props.role === "maintenance");
 const canReview = computed(() => props.role === "inspector");
 const canTreat = computed(() => props.role === "maintenance");
+const currentWorkUserName = computed(() => currentUserName?.value ?? currentUser?.value?.username ?? roleLabels[props.role]);
 
 const treeOptions = computed(() =>
   props.trees.map((tree) => ({
@@ -154,8 +155,9 @@ const createOrder = () => {
     issueType: createForm.value.issueType,
     issueDescription: createForm.value.issueDescription,
     locationDescription: createForm.value.locationDescription,
+    creatorId: currentUser?.value?.id,
     creatorRole: props.role,
-    creatorName: roleLabels[props.role],
+    creatorName: currentWorkUserName.value,
     createPhotos: toPhotoRecords(createPhotos.value),
     treatmentPhotos: [],
     createdAt: now,
@@ -190,6 +192,8 @@ const submitTreatment = (order) => {
   emit("updateOrder", {
     ...order,
     status: "reviewing",
+    handlerId: currentUser?.value?.id,
+    handlerName: currentWorkUserName.value,
     treatmentMeasures: treatmentForm.value.treatmentMeasures,
     treatmentPhotos: toPhotoRecords(treatmentPhotos.value),
     processedAt: now,
@@ -214,8 +218,8 @@ const reviewOrder = (order, passed) => {
   emit("updateOrder", {
     ...order,
     status: passed ? "archived" : "processing",
-    reviewUserName: "巡检人员",
-    reviewTime: now,
+    reviewerId: currentUser?.value?.id,
+    reviewerName: currentWorkUserName.value,
     reviewedAt: now,
     archivedAt: passed ? now : order.archivedAt,
     reviewResult: passed ? "passed" : "rework",
@@ -462,6 +466,8 @@ const leadColumns = [
           <a-descriptions-item label="问题描述">{{ selectedOrder.issueDescription }}</a-descriptions-item>
           <a-descriptions-item label="相对位置">{{ selectedOrder.locationDescription }}</a-descriptions-item>
           <a-descriptions-item label="创建人">{{ selectedOrder.creatorName ?? roleLabels[selectedOrder.creatorRole] }}</a-descriptions-item>
+          <a-descriptions-item label="处置人">{{ selectedOrder.handlerName ?? "未处置" }}</a-descriptions-item>
+          <a-descriptions-item label="复核人">{{ selectedOrder.reviewerName ?? "未复核" }}</a-descriptions-item>
           <a-descriptions-item label="创建时间">{{ selectedOrder.createdAt }}</a-descriptions-item>
           <a-descriptions-item label="处置时间">{{ selectedOrder.processedAt ?? "未处置" }}</a-descriptions-item>
           <a-descriptions-item label="复核时间">{{ selectedOrder.reviewedAt ?? "未复核" }}</a-descriptions-item>

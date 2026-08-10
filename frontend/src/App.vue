@@ -154,6 +154,7 @@ const treeSearchOptions = computed(() =>
 
 const recentWorkOrders = computed(() => workOrders.value.slice(0, 3));
 const topSpecies = computed(() => stats.value.speciesRatio[0]);
+const isMobileRoute = computed(() => route.path.startsWith("/mobile"));
 
 // ---- sync route with page state ----
 watch(() => route.path, (path) => {
@@ -253,8 +254,9 @@ const convertVisitorLeadToWorkOrder = (lead) => {
     issueDescription: [lead.issueDescription, lead.locationDescription ? `相对位置：${lead.locationDescription}` : ""]
       .filter(Boolean)
       .join("；"),
+    creatorId: currentUser.value?.id,
     creatorRole: role.value,
-    creatorName: roleLabels[role.value],
+    creatorName: currentUserName.value,
     createPhotos: lead.photos,
     treatmentPhotos: [],
     createdAt: now,
@@ -356,19 +358,22 @@ const handleLogin = (user) => {
   currentUser.value = user;
   role.value = user.role;
   organizationName.value = user.organizationName ?? "公众访问";
+  currentUserName.value = user.username ?? user.account ?? roleLabels[user.role] ?? "游客";
   isAuthenticated.value = true;
-  router.push("/map");
+  router.push(isMobileRoute.value ? "/mobile/map" : "/map");
 };
 
 const handleLogout = async () => {
+  const shouldStayMobile = isMobileRoute.value;
   await logout();
   currentUser.value = null;
+  currentUserName.value = "游客";
   isAuthenticated.value = false;
   role.value = "inspector";
   organizationName.value = "大兴善寺";
   selectedTree.value = null;
   selectedOrder.value = null;
-  router.push("/map");
+  router.push(shouldStayMobile ? "/mobile/map" : "/map");
 };
 
 // ---- provide shared state to child components ----
@@ -411,6 +416,7 @@ provide("appState", {
   addTree,
   addCheckIn,
   toggleLike,
+  handleLogout,
   createWorkOrder,
   createVisitorLead,
   deleteVisitorLead,
@@ -441,8 +447,11 @@ provide("appState", {
   <LoginPage
     v-if="!isAuthenticated"
     :initial-role="role"
+    :mobile="isMobileRoute"
     @enter="handleLogin"
   />
+
+  <router-view v-else-if="isMobileRoute" />
 
   <!-- Main App Shell (when authenticated) -->
   <a-layout v-else class="app-shell" :class="{ 'text-large': textSize === 'large' }">

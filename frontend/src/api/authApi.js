@@ -8,24 +8,30 @@ const seedUsers = [
   {
     id: "user-visitor",
     account: "visitor",
+    username: "游客小秦",
     password: "123456",
     role: "visitor",
+    organizationId: "public",
     organizationName: "公众访问",
     approvalStatus: "approved",
   },
   {
     id: "user-inspector",
     account: "inspector",
+    username: "巡检员小王",
     password: "123456",
     role: "inspector",
+    organizationId: "daxingshansi",
     organizationName: "大兴善寺巡检组",
     approvalStatus: "approved",
   },
   {
     id: "user-maintenance",
     account: "maintenance",
+    username: "养护员老李",
     password: "123456",
     role: "maintenance",
+    organizationId: "daxingshansi",
     organizationName: "西安市园林养护一组",
     approvalStatus: "approved",
   },
@@ -72,6 +78,10 @@ export async function register(payload) {
   }
 
   const account = payload.account?.trim();
+  const username = payload.username?.trim();
+  if (!username) {
+    throw new Error("请填写用户名/姓名");
+  }
   if (readUsers().some((item) => item.account === account && item.role === payload.role)) {
     throw new Error("该账号在当前角色下已存在");
   }
@@ -80,8 +90,10 @@ export async function register(payload) {
   const user = {
     id: `user-${Date.now()}`,
     account,
+    username,
     password: payload.password,
     role: payload.role,
+    organizationId: payload.role === "visitor" ? "public" : payload.organizationId,
     organizationName: payload.role === "visitor" ? "公众访问" : organization?.label ?? payload.organizationName,
     approvalStatus: payload.role === "visitor" ? "approved" : "pending",
   };

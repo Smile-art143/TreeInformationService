@@ -14,7 +14,7 @@ import {
 
 const app = inject("appState");
 const {
-  trees, speciesColors, selectedTree, role,
+  trees, speciesColors, selectedTree, role, currentUser, currentUserName,
   setSelectedTree, focusTree,
   unlockedSpecies, allSpecies,
   checkInLeaderboard, photoWallPhotos,
@@ -251,6 +251,8 @@ function submitTreatmentInGuide() {
   const updated = {
     ...detailOrder.value,
     status: "reviewing",
+    handlerId: currentUser.value?.id,
+    handlerName: currentUserName.value,
     treatmentMeasures: guideTreatmentForm.value.treatmentMeasures,
     treatmentPhotos: toPhotoRecords(guideTreatmentPhotos.value),
     processedAt: now,
@@ -271,7 +273,8 @@ function submitReviewInGuide(passed) {
     reviewResult: passed ? "passed" : "rework",
     reviewComment: guideReviewForm.value.reviewComment || (passed ? "处置效果达标，归档。" : "处置效果不足，退回待处置。"),
     reviewHealthStatus: guideReviewForm.value.healthStatus,
-    reviewUserName: roleLabels[role.value],
+    reviewerId: currentUser.value?.id,
+    reviewerName: currentUserName.value,
     reviewedAt: now,
     archivedAt: passed ? now : detailOrder.value.archivedAt,
     updatedAt: now,
@@ -720,6 +723,8 @@ const rankMedals = { 1: "#FFD700", 2: "#C0C0C0", 3: "#CD7F32" };
       :open="showCreateOrderModal"
       :trees="trees"
       :role="role"
+      :current-user="currentUser"
+      :current-user-name="currentUserName"
       :pre-selected-tree="inspectorSelectedTree ? { id: inspectorSelectedTree.id, code: inspectorSelectedTree.code, species: inspectorSelectedTree.species } : null"
       @close="showCreateOrderModal = false"
       @create-order="handleCreateWorkOrder"
@@ -743,6 +748,8 @@ const rankMedals = { 1: "#FFD700", 2: "#C0C0C0", 3: "#CD7F32" };
           <a-descriptions-item label="问题描述">{{ detailOrder.issueDescription }}</a-descriptions-item>
           <a-descriptions-item label="相对位置">{{ detailOrder.locationDescription }}</a-descriptions-item>
           <a-descriptions-item label="创建人">{{ detailOrder.creatorName ?? roleLabels[detailOrder.creatorRole] }}</a-descriptions-item>
+          <a-descriptions-item label="处置人">{{ detailOrder.handlerName ?? '未处置' }}</a-descriptions-item>
+          <a-descriptions-item label="复核人">{{ detailOrder.reviewerName ?? '未复核' }}</a-descriptions-item>
           <a-descriptions-item label="创建时间">{{ detailOrder.createdAt }}</a-descriptions-item>
           <a-descriptions-item label="处置时间">{{ detailOrder.processedAt ?? '未处置' }}</a-descriptions-item>
           <a-descriptions-item label="复核时间">{{ detailOrder.reviewedAt ?? '未复核' }}</a-descriptions-item>

@@ -7,6 +7,8 @@ const props = defineProps({
   open: Boolean,
   trees: { type: Array, default: () => [] },
   role: { type: String, default: "inspector" },
+  currentUser: { type: Object, default: null },
+  currentUserName: { type: String, default: "" },
   preSelectedTree: { type: Object, default: null },
 });
 
@@ -27,6 +29,7 @@ const treeOptions = computed(() =>
     label: `${tree.code} / ${tree.species} / ${tree.locationDescription || tree.siteName}`,
   }))
 );
+const displayUserName = computed(() => props.currentUserName || props.currentUser?.username || props.currentUser?.account || roleLabels[props.role]);
 
 function toPhotoRecords(fileList) {
   return fileList.map((file) => ({
@@ -79,8 +82,9 @@ function handleSubmit() {
     issueType: form.value.issueType,
     issueDescription: form.value.issueDescription,
     locationDescription: form.value.locationDescription,
+    creatorId: props.currentUser?.id,
     creatorRole: props.role,
-    creatorName: roleLabels[props.role],
+    creatorName: displayUserName.value,
     createPhotos: toPhotoRecords(createPhotos.value),
     treatmentPhotos: [],
     createdAt: now,
