@@ -3,11 +3,12 @@ import { computed, inject, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Camera, CheckCircle2, ChevronDown, ClipboardList, Compass, Heart, Home, Leaf,
-  ListChecks, MapPinned, Navigation, Search, Send, UserRound, Wrench
+  ListChecks, MapPinned, Navigation, Route as RouteIcon, Search, Send, UserRound, Wrench
 } from "lucide-vue-next";
 import { message } from "ant-design-vue";
 import ArcGISTreeMap from "../components/ArcGISTreeMap.vue";
 import CreateWorkOrderModal from "../components/CreateWorkOrderModal.vue";
+import MobileRoutesSection from "../components/MobileRoutesSection.vue";
 import {
   healthLabels, healthOptions, issueTypes, leadStatusLabels, roleLabels, statusLabels
 } from "../api/mockApi";
@@ -45,13 +46,22 @@ const {
   handleLogout,
 } = app;
 
-const activeTab = computed(() => route.params.tab || "map");
-const tabItems = [
-  { key: "map", label: "地图", icon: MapPinned },
-  { key: "guide", label: "导览", icon: Compass },
-  { key: "tasks", label: "任务", icon: ListChecks },
-  { key: "me", label: "我的", icon: UserRound },
-];
+const activeTab = computed(() => {
+  const tab = route.params.tab || "map";
+  return tab === "routes" && role.value !== "visitor" ? "map" : tab;
+});
+const tabItems = computed(() => {
+  const items = [
+    { key: "map", label: "地图", icon: MapPinned },
+  ];
+  if (role.value === "visitor") {
+    items.push({ key: "routes", label: "路线", icon: RouteIcon });
+  }
+  items.push({ key: "guide", label: "导览", icon: Compass });
+  items.push({ key: "tasks", label: "任务", icon: ListChecks });
+  items.push({ key: "me", label: "我的", icon: UserRound });
+  return items;
+});
 
 const statusColor = { created: "default", processing: "blue", reviewing: "purple", archived: "green" };
 const leadStatusColor = { new: "orange", converted: "green" };
@@ -225,6 +235,15 @@ watch(activeOrder, (order) => {
 watch(selectedTree, (tree) => {
   if (tree) treeSheetLevel.value = "mid";
 });
+
+watch(
+  [role, () => route.params.tab],
+  ([currentRole, tab]) => {
+    if (tab === "routes" && currentRole !== "visitor") {
+      router.replace("/mobile/map");
+    }
+  }
+);
 
 function goTab(tab) {
   router.push(`/mobile/${tab}`);
@@ -630,6 +649,10 @@ function submitReview(passed) {
       </div>
     </section>
 
+    <section v-if="activeTab === 'routes' && role === 'visitor'" class="mobile-screen mobile-routes-screen">
+      <MobileRoutesSection />
+    </section>
+
     <section v-show="activeTab === 'guide'" class="mobile-screen mobile-scroll-screen">
       <div class="mobile-section-heading">
         <h1>导览打卡</h1>
@@ -787,7 +810,7 @@ function submitReview(passed) {
       <a-button danger block size="large" @click="handleLogout">退出登录</a-button>
     </section>
 
-    <nav class="mobile-tabbar">
+    <nav class="mobile-tabbar" :style="{ gridTemplateColumns: `repeat(${tabItems.length}, minmax(0, 1fr))` }">
       <button
         v-for="item in tabItems"
         :key="item.key"

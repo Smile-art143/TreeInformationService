@@ -1,0 +1,611 @@
+<script setup>
+import { computed, inject, ref } from "vue";
+import { message } from "ant-design-vue";
+import { Camera, CheckCircle2, MapPin, Navigation, Route as RouteIcon, Trees, X } from "lucide-vue-next";
+import ArcGISTreeMap from "./ArcGISTreeMap.vue";
+import { bearingToText, calculateBearing, haversineDistance } from "../api/mockApi";
+import { photoSpots as allPhotoSpots } from "../data/photoSpots";
+
+const app = inject("appState");
+const { trees, speciesColors } = app;
+
+// 缓冲区中心取景区树木点位均值，半径覆盖景区及周边可步行范围。
+const PARK_ZONES = [
+  {
+    id: "daxingshansi",
+    siteName: "大兴善寺",
+    center: { lat: 34.228779, lng: 108.938921 },
+    radiusM: 500,
+    windows: [
+      { key: "3-4", label: "3~4月", species: ["樱花", "樱桃李", "紫藤"] },
+      { key: "6-7", label: "6~7月", species: ["女贞"] },
+      { key: "7-8", label: "7~8月", species: ["槐树", "国槐"] },
+      { key: "9-10", label: "9~10月", species: ["桂花"] },
+      { key: "10-11", label: "10~11月", species: ["银杏", "枫树"] },
+    ],
+  },
+  {
+    id: "tangdacien-temple-park",
+    siteName: "唐大慈恩寺遗址公园",
+    center: { lat: 34.21916, lng: 108.96227 },
+    radiusM: 500,
+    windows: [
+      { key: "10-11", label: "10~11月", species: ["银杏", "枫树"] },
+    ],
+  },
+];
+
+const mapRef = ref(null);
+const business = ref(null);
+const isLocating = ref(false);
+const currentPosition = ref(null);
+const matchedPark = ref(null);
+const selectedWindow = ref(null);
+const selectedPhotoSpotIds = ref([]);
+const activeSpot = ref(null);
+const destination = ref(null);
+const isPickingPosition = ref(false);
+const isPickingDestination = ref(false);
+const navigationActive = ref(false);
+const routeOrder = ref([]);
+const routeTotalMeters = ref(0);
+
+const windowTrees = computed(() => {
+  if (!matchedPark.value || !selectedWindow.value) return [];
+  return trees.value.filter(
+    (tree) => tree.siteName === matchedPark.value.siteName && selectedWindow.value.species.includes(tree.species)
+  );
+});
+const highlightedTreeIds = computed(() => windowTrees.value.map((tree) => tree.id));
+const photoSpotsForPark = computed(() =>
+  allPhotoSpots.filter((spot) => spot.siteName === matchedPark.value?.siteName)
+);
+const photoSpotsForMap = computed(() => (business.value === "photo" ? photoSpotsForPark.value : []));
+const selectedPhotoSpots = computed(() =>
+  photoSpotsForPark.value.filter((spot) => selectedPhotoSpotIds.value.includes(spot.id))
+);
+const positionLabel = computed(() => {
+  if (!currentPosition.value) return "未定位";
+  return `${Number(currentPosition.value.lat).toFixed(5)}, ${Number(currentPosition.value.lng).toFixed(5)}`;
+});
+const destinationLabel = computed(() => destination.value?.name || "未选择");
+const routeDurationMinutes = computed(() => Math.max(1, Math.round(routeTotalMeters.value / 80)));
+const businessTitle = computed(() => (business.value === "photo" ? "拍照机位路线" : "季节主题路线"));
+
+function openSeasonalRoute() {
+  business.value = "seasonal";
+  resetRouteState();
+  locateVisitor();
+}
+
+function openPhotoRoute() {
+  business.value = "photo";
+  resetRouteState();
+  locateVisitor();
+}
+
+function backToBusiness() {
+  business.value = null;
+  resetRouteState();
+}
+
+function resetRouteState() {
+  selectedWindow.value = null;
+  selectedPhotoSpotIds.value = [];
+  activeSpot.value = null;
+  destination.value = null;
+  isPickingPosition.value = false;
+  isPickingDestination.value = false;
+  navigationActive.value = false;
+  routeOrder.value = [];
+  routeTotalMeters.value = 0;
+  clearMapOverlays();
+}
+
+function locateVisitor() {
+  if (!navigator.geolocation) {
+    message.warning("您的浏览器不支持地理定位");
+    return;
+  }
+  isLocating.value = true;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      currentPosition.value = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      isLocating.value = false;
+      resolveMatchedPark();
+    },
+    (error) => {
+      isLocating.value = false;
+      if (error.code === 1) {
+        message.error("定位权限被拒绝，请在浏览器设置中允许定位");
+      } else {
+        message.error("获取定位失败，请稍后重试");
+      }
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+  );
+}
+
+function resolveMatchedPark() {
+  const pos = currentPosition.value;
+  const park = PARK_ZONES.find(
+    (zone) => haversineDistance(pos.lat, pos.lng, zone.center.lat, zone.center.lng) <= zone.radiusM
+  ) || null;
+  matchedPark.value = park;
+  resetRouteState();
+  if (park) {
+    message.success(`已识别${park.siteName}路线方案`);
+  } else {
+    message.info("当前位置不在已开通路线的景区缓冲区内");
+  }
+}
+
+function selectWindow(window) {
+  if (!matchedPark.value) return;
+  selectedWindow.value = window;
+  destination.value = null;
+  isPickingDestination.value = false;
+  navigationActive.value = false;
+  routeOrder.value = [];
+  routeTotalMeters.value = 0;
+  clearMapOverlays();
+  if (windowTrees.value.length === 0) {
+    message.warning("该观赏窗口暂无对应树木数据");
+    return;
+  }
+  const center = getCenter(windowTrees.value);
+  mapRef.value?.flyTo(center.lat, center.lng, 18);
+  message.success(`已高亮 ${windowTrees.value.length} 棵${window.label}树木`);
+}
+
+function clearMapOverlays() {
+  mapRef.value?.clearCustomOverlays();
+}
+
+function handleMapClick({ latitude, longitude }) {
+  if (isPickingPosition.value) {
+    currentPosition.value = { lat: latitude, lng: longitude };
+    isPickingPosition.value = false;
+    resolveMatchedPark();
+    return;
+  }
+  if ((business.value !== "seasonal" && business.value !== "photo") || !isPickingDestination.value) return;
+  setDestination({ lat: latitude, lng: longitude, name: "地图选点" });
+}
+
+function handleTreeSelect(tree) {
+  if (isPickingPosition.value && tree) {
+    currentPosition.value = { lat: tree.latitude, lng: tree.longitude };
+    isPickingPosition.value = false;
+    resolveMatchedPark();
+    return;
+  }
+  if (!isPickingDestination.value || !tree) return;
+  setDestination({ lat: tree.latitude, lng: tree.longitude, name: `${tree.code} / ${tree.species}` });
+}
+
+function handlePhotoSpotSelect(spot) {
+  if (isPickingPosition.value) {
+    currentPosition.value = { lat: spot.latitude, lng: spot.longitude };
+    isPickingPosition.value = false;
+    resolveMatchedPark();
+    return;
+  }
+  if (isPickingDestination.value) {
+    setDestination({ lat: spot.latitude, lng: spot.longitude, name: `${spot.code} / ${spot.name}` });
+    return;
+  }
+  activeSpot.value = spot;
+}
+
+function togglePhotoSpotSelection(spot) {
+  if (!spot) return;
+  const next = new Set(selectedPhotoSpotIds.value);
+  if (next.has(spot.id)) {
+    next.delete(spot.id);
+  } else {
+    next.add(spot.id);
+  }
+  selectedPhotoSpotIds.value = [...next];
+}
+
+function isPhotoSpotSelected(spot) {
+  return spot && selectedPhotoSpotIds.value.includes(spot.id);
+}
+
+function chooseSpotDestination(spot) {
+  setDestination({ lat: spot.latitude, lng: spot.longitude, name: `${spot.code} / ${spot.name}` });
+}
+
+function chooseTreeDestination(tree) {
+  setDestination({ lat: tree.latitude, lng: tree.longitude, name: `${tree.code} / ${tree.species}` });
+}
+
+function startMapPositionPick() {
+  isPickingPosition.value = true;
+  isPickingDestination.value = false;
+  message.info("请在地图上点击选择当前位置");
+}
+
+function pickDestination() {
+  isPickingDestination.value = true;
+  isPickingPosition.value = false;
+}
+
+function setDestination(point) {
+  destination.value = point;
+  isPickingDestination.value = false;
+  mapRef.value?.showTargetMarker(point.lat, point.lng, "destination", null);
+  message.success("终点已选择，可开始导航");
+}
+
+function startNavigation() {
+  if (!matchedPark.value) return;
+  if (business.value === "photo" && selectedPhotoSpotIds.value.length === 0) {
+    message.info("请至少选择一个机位点位作为途经点");
+    return;
+  }
+  if (business.value === "seasonal" && !selectedWindow.value) return;
+  if (!currentPosition.value) {
+    message.info("请先定位当前位置");
+    locateVisitor();
+    return;
+  }
+  if (!destination.value) {
+    isPickingDestination.value = true;
+    message.info("请在地图上点击或选择树木、机位作为终点");
+    return;
+  }
+
+  const waypoints = business.value === "photo" ? selectedPhotoSpots.value : windowTrees.value;
+  const ordered = planShortestPath(currentPosition.value, waypoints, destination.value);
+  routeOrder.value = ordered;
+  routeTotalMeters.value = ordered.slice(0, -1).reduce(
+    (sum, point, index) =>
+      sum + haversineDistance(point.lat, point.lng, ordered[index + 1].lat, ordered[index + 1].lng),
+    0
+  );
+  navigationActive.value = true;
+  drawNavigationRoute();
+  message.success(`已规划 ${waypoints.length} 个途经点的路线`);
+}
+
+function planShortestPath(start, waypoints, end) {
+  const remaining = waypoints.map((item) => ({
+    lat: Number(item.latitude ?? item.lat),
+    lng: Number(item.longitude ?? item.lng),
+    label: item.label || (item.code ? `${item.code} / ${item.name || item.species}` : "途经点"),
+    id: item.id || item.treeId,
+  }));
+  const ordered = [{ ...start, label: "当前位置", type: "start" }];
+  let current = start;
+
+  while (remaining.length) {
+    let bestIndex = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    remaining.forEach((point, index) => {
+      const dist = haversineDistance(current.lat, current.lng, point.lat, point.lng);
+      if (dist < bestDistance) {
+        bestDistance = dist;
+        bestIndex = index;
+      }
+    });
+    const next = remaining.splice(bestIndex, 1)[0];
+    ordered.push({ ...next, type: "waypoint" });
+    current = next;
+  }
+
+  ordered.push({ ...end, label: end.name || "自定义终点", type: "destination" });
+  optimizeTwoOpt(ordered);
+  return ordered;
+}
+
+function optimizeTwoOpt(points) {
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < points.length - 2; i++) {
+      for (let k = i + 1; k < points.length - 1; k++) {
+        const before = segmentDistance(points, i - 1, i) + segmentDistance(points, k, k + 1);
+        const after = segmentDistance(points, i - 1, k) + segmentDistance(points, i, k + 1);
+        if (after + 1e-9 < before) {
+          reverseSegment(points, i, k);
+          improved = true;
+        }
+      }
+    }
+  }
+}
+
+function segmentDistance(points, fromIndex, toIndex) {
+  const from = points[fromIndex];
+  const to = points[toIndex];
+  return haversineDistance(from.lat, from.lng, to.lat, to.lng);
+}
+
+function reverseSegment(points, startIndex, endIndex) {
+  while (startIndex < endIndex) {
+    const temp = points[startIndex];
+    points[startIndex] = points[endIndex];
+    points[endIndex] = temp;
+    startIndex++;
+    endIndex--;
+  }
+}
+
+function drawNavigationRoute() {
+  const map = mapRef.value;
+  if (!map || routeOrder.value.length === 0) return;
+  map.clearCustomOverlays();
+
+  const first = routeOrder.value[0];
+  const last = routeOrder.value[routeOrder.value.length - 1];
+  map.showLocationMarker(first.lat, first.lng);
+  for (let i = 0; i < routeOrder.value.length - 1; i++) {
+    const from = routeOrder.value[i];
+    const to = routeOrder.value[i + 1];
+    map.showNavigationLine(from.lat, from.lng, to.lat, to.lng);
+  }
+  map.showTargetMarker(last.lat, last.lng, "destination", null);
+
+  const center = getCenter(routeOrder.value);
+  map.flyTo(center.lat, center.lng, 16);
+}
+
+function endNavigation() {
+  navigationActive.value = false;
+  routeOrder.value = [];
+  routeTotalMeters.value = 0;
+  clearMapOverlays();
+  if (business.value === "photo" && selectedPhotoSpots.value.length) {
+    const center = getCenter(selectedPhotoSpots.value);
+    mapRef.value?.flyTo(center.lat, center.lng, 17);
+  } else if (windowTrees.value.length) {
+    const center = getCenter(windowTrees.value);
+    mapRef.value?.flyTo(center.lat, center.lng, 17);
+  }
+  message.success("已结束导航");
+}
+
+function stepMeters(index) {
+  const from = routeOrder.value[index - 1];
+  const to = routeOrder.value[index];
+  if (!from || !to) return 0;
+  return haversineDistance(from.lat, from.lng, to.lat, to.lng);
+}
+
+function stepBearing(index) {
+  const from = routeOrder.value[index - 1];
+  const to = routeOrder.value[index];
+  if (!from || !to) return "";
+  return bearingToText(calculateBearing(from.lat, from.lng, to.lat, to.lng));
+}
+
+function formatDistance(meters) {
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${Math.round(meters)}m`;
+}
+
+function getCenter(points) {
+  if (!points.length) return { lat: 34.228779, lng: 108.938921 };
+  const lat = points.reduce((sum, point) => sum + Number(point.latitude ?? point.lat), 0) / points.length;
+  const lng = points.reduce((sum, point) => sum + Number(point.longitude ?? point.lng), 0) / points.length;
+  return { lat, lng };
+}
+</script>
+
+<template>
+  <div class="mobile-routes-root">
+    <div class="mobile-route-map-wrap">
+      <ArcGISTreeMap
+        ref="mapRef"
+        :trees="trees"
+        :species-colors="speciesColors"
+        :highlighted-tree-ids="highlightedTreeIds"
+        :photo-spots="photoSpotsForMap"
+        :selected-photo-spot-ids="selectedPhotoSpotIds"
+        @tree-select="handleTreeSelect"
+        @map-click="handleMapClick"
+        @photo-spot-select="handlePhotoSpotSelect"
+      />
+    </div>
+
+    <div class="mobile-route-panel">
+      <template v-if="business === null">
+        <div class="mobile-card-title"><RouteIcon :size="17" />路线服务</div>
+        <p class="mobile-route-copy">选择一种路线服务，系统会根据当前位置推荐对应景区的游览方案。</p>
+        <div class="mobile-route-business-grid">
+          <button type="button" class="mobile-route-business-card featured" @click="openPhotoRoute">
+            <Camera :size="20" />
+            <strong>拍照机位路线</strong>
+            <span>按景区推荐拍照机位，支持多机位路径导航</span>
+          </button>
+          <button type="button" class="mobile-route-business-card" @click="openSeasonalRoute">
+            <Trees :size="20" />
+            <strong>季节主题路线</strong>
+            <span>按观赏窗口推荐树木路线</span>
+          </button>
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="mobile-route-heading-row">
+          <div class="mobile-card-title">
+            <component :is="business === 'photo' ? Camera : Trees" :size="17" />
+            {{ businessTitle }}
+          </div>
+          <button type="button" class="mobile-route-back" @click="backToBusiness">返回</button>
+        </div>
+
+        <div class="mobile-route-locate-row">
+          <span><MapPin :size="14" />{{ positionLabel }}</span>
+          <div class="mobile-route-locate-actions">
+            <a-button size="small" :loading="isLocating" @click="locateVisitor">
+              <Navigation :size="13" />重新定位
+            </a-button>
+            <a-button size="small" :type="isPickingPosition ? 'primary' : 'default'" @click="startMapPositionPick">
+              <MapPin :size="13" />地图选点
+            </a-button>
+          </div>
+        </div>
+        <p v-if="isPickingPosition" class="mobile-route-hint">点击地图任意位置、树木或机位作为当前位置</p>
+
+        <template v-if="!matchedPark">
+          <p class="mobile-route-copy">当前定位不在已开通路线景区的缓冲区内，请移动到景区附近或使用“地图选点”选择位置。</p>
+        </template>
+
+        <template v-else>
+          <div class="mobile-route-park-name">
+            <strong>{{ matchedPark.siteName }}</strong>
+            <span>{{ business === 'photo' ? `${photoSpotsForPark.length} 个拍照机位` : `${matchedPark.windows.length} 个观赏窗口` }}</span>
+          </div>
+
+          <template v-if="business === 'seasonal'">
+            <div class="mobile-window-chips">
+              <button
+                v-for="window in matchedPark.windows"
+                :key="window.key"
+                type="button"
+                :class="{ active: selectedWindow && selectedWindow.key === window.key }"
+                @click="selectWindow(window)"
+              >
+                {{ window.label }}
+              </button>
+            </div>
+
+            <template v-if="selectedWindow">
+              <div class="mobile-route-window-summary">
+                <span>{{ selectedWindow.label }} · {{ windowTrees.length }} 棵树木</span>
+                <strong>{{ selectedWindow.species.join(" / ") }}</strong>
+              </div>
+              <div v-if="windowTrees.length" class="mobile-route-tree-picks">
+                <button
+                  v-for="tree in windowTrees.slice(0, 5)"
+                  :key="tree.id"
+                  type="button"
+                  @click="chooseTreeDestination(tree)"
+                >
+                  <span><strong>{{ tree.code }}</strong>{{ tree.species }}</span>
+                  <em>设为终点</em>
+                </button>
+              </div>
+            </template>
+          </template>
+
+          <template v-else-if="business === 'photo'">
+            <p v-if="photoSpotsForPark.length === 0" class="mobile-route-copy">该景区暂无机位数据。</p>
+            <div v-else class="mobile-spot-list">
+              <article
+                v-for="spot in photoSpotsForPark"
+                :key="spot.id"
+                class="mobile-spot-card"
+                :class="{ selected: isPhotoSpotSelected(spot) }"
+              >
+                <button type="button" class="mobile-spot-card-main" @click="handlePhotoSpotSelect(spot)">
+                  <span class="mobile-spot-card-top">
+                    <strong>{{ spot.code }}</strong>
+                    <em>{{ spot.name }}</em>
+                  </span>
+                  <p>{{ spot.description }}</p>
+                </button>
+                <button
+                  type="button"
+                  class="mobile-spot-card-action"
+                  :class="{ selected: isPhotoSpotSelected(spot) }"
+                  @click="togglePhotoSpotSelection(spot)"
+                >
+                  <CheckCircle2 v-if="isPhotoSpotSelected(spot)" :size="13" />
+                  {{ isPhotoSpotSelected(spot) ? "已选途经点" : "选为途经点" }}
+                </button>
+              </article>
+            </div>
+          </template>
+
+          <template v-if="(business === 'photo' && photoSpotsForPark.length) || (business === 'seasonal' && selectedWindow)">
+            <div class="mobile-route-destination-block">
+              <div class="mobile-info-row">
+                <span>{{ business === 'photo' ? '已选机位' : '已选树木' }}</span>
+                <strong>{{ business === 'photo' ? `${selectedPhotoSpotIds.length} 个` : `${windowTrees.length} 棵` }}</strong>
+              </div>
+              <div class="mobile-info-row">
+                <span>终点</span>
+                <strong>{{ destinationLabel }}</strong>
+              </div>
+              <p v-if="business === 'photo' && selectedPhotoSpotIds.length === 0" class="mobile-route-hint">
+                请先选择至少一个机位点位作为途经点
+              </p>
+              <div class="mobile-action-row">
+                <a-button :type="isPickingDestination ? 'primary' : 'default'" @click="pickDestination">
+                  <MapPin :size="14" />选择终点
+                </a-button>
+                <a-button
+                  type="primary"
+                  :disabled="business === 'photo' && selectedPhotoSpotIds.length === 0"
+                  @click="startNavigation"
+                >
+                  <Navigation :size="14" />开始导航
+                </a-button>
+              </div>
+              <p v-if="isPickingDestination" class="mobile-route-hint">点击地图任意位置、树木或机位作为终点</p>
+            </div>
+          </template>
+
+          <template v-if="navigationActive">
+            <div class="mobile-route-nav-summary">
+              <div><strong>{{ routeTotalMeters.toFixed(0) }}</strong><span>米</span></div>
+              <div><strong>{{ routeDurationMinutes }}</strong><span>分钟</span></div>
+              <div><strong>{{ routeOrder.length - 2 }}</strong><span>途经点</span></div>
+            </div>
+
+            <div class="mobile-route-steps">
+              <div
+                v-for="(point, index) in routeOrder"
+                :key="`${point.type}-${index}`"
+                class="mobile-route-step"
+              >
+                <span class="mobile-route-step-index">
+                  {{ index === 0 ? "起" : index === routeOrder.length - 1 ? "终" : index }}
+                </span>
+                <span class="mobile-route-step-copy">
+                  <strong>{{ point.label }}</strong>
+                  <em>{{ index > 0 ? `${formatDistance(stepMeters(index))} · ${stepBearing(index)}` : "当前位置" }}</em>
+                </span>
+              </div>
+            </div>
+
+            <a-button danger block @click="endNavigation">
+              <X :size="14" />结束导航
+            </a-button>
+          </template>
+        </template>
+      </template>
+    </div>
+
+    <a-drawer
+      :open="Boolean(activeSpot)"
+      placement="bottom"
+      height="74vh"
+      title="拍照机位"
+      class="mobile-bottom-drawer"
+      @close="activeSpot = null"
+    >
+      <div v-if="activeSpot" class="mobile-spot-detail">
+        <div class="mobile-spot-detail-title">
+          <strong>{{ activeSpot.name }}</strong>
+          <span>{{ activeSpot.code }}</span>
+        </div>
+        <div class="mobile-info-row"><span>编号</span><strong>{{ activeSpot.code }}</strong></div>
+        <div class="mobile-info-row"><span>名称</span><strong>{{ activeSpot.name }}</strong></div>
+        <div class="mobile-drawer-label">描述</div>
+        <p class="mobile-drawer-copy">{{ activeSpot.description }}</p>
+        <div class="mobile-drawer-label">出片建议</div>
+        <p class="mobile-drawer-copy mobile-spot-suggestion">{{ activeSpot.suggestion }}</p>
+        <div class="mobile-action-row">
+          <a-button :type="isPhotoSpotSelected(activeSpot) ? 'default' : 'primary'" @click="togglePhotoSpotSelection(activeSpot)">
+            {{ isPhotoSpotSelected(activeSpot) ? "移除途经点" : "选为途经点" }}
+          </a-button>
+          <a-button type="primary" @click="chooseSpotDestination(activeSpot)">设为终点</a-button>
+        </div>
+      </div>
+    </a-drawer>
+  </div>
+</template>

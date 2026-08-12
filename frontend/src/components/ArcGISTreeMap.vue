@@ -78,13 +78,17 @@ const props = defineProps({
   trees: { type: Array, default: () => [] },
   selectedTree: { type: Object, default: null },
   speciesColors: { type: Object, default: () => ({}) },
+  highlightedTreeIds: { type: Array, default: () => [] },
+  photoSpots: { type: Array, default: () => [] },
+  selectedPhotoSpotIds: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(["treeSelect", "mapClick"]);
+const emit = defineEmits(["treeSelect", "mapClick", "photoSpotSelect"]);
 
 const containerRef = ref(null);
 const viewRef = shallowRef(null);
 const layerRef = shallowRef(null);
+const photoSpotLayerRef = shallowRef(null);
 const overlayLayerRef = shallowRef(null);
 const treesRef = ref([...props.trees]);
 
@@ -98,6 +102,7 @@ onMounted(() => {
   if (!containerRef.value || viewRef.value) return;
 
   const treeLayer = new GraphicsLayer({ title: "树木点位" });
+  const photoSpotLayer = new GraphicsLayer({ title: "拍照机位" });
   const overlayLayer = new GraphicsLayer({ title: "巡检覆盖层" });
 
   // 天地图矢量底图（限流 + 自动重试）
@@ -115,7 +120,7 @@ onMounted(() => {
   });
 
   const map = new ArcGISMap({
-    layers: [vecLayer, cvaLayer, treeLayer, overlayLayer],
+    layers: [vecLayer, cvaLayer, treeLayer, photoSpotLayer, overlayLayer],
   });
 
   const view = new MapView({
@@ -133,10 +138,21 @@ onMounted(() => {
   view.ui.move("zoom", "bottom-right");
   viewRef.value = markRaw(view);
   layerRef.value = markRaw(treeLayer);
+  photoSpotLayerRef.value = markRaw(photoSpotLayer);
   overlayLayerRef.value = markRaw(overlayLayer);
 
   const clickHandle = view.on("click", async (event) => {
     const response = await view.hitTest(event);
+    const photoSpotHit = response.results.find((item) => {
+      return "graphic" in item && item.graphic?.layer === photoSpotLayer;
+    });
+    if (photoSpotHit && "graphic" in photoSpotHit) {
+      const spotId = photoSpotHit.graphic.attributes?.photoSpotId;
+      const spot = props.photoSpots.find((item) => item.id === spotId);
+      if (spot) emit("photoSpotSelect", spot);
+      return;
+    }
+
     const hit = response.results.find((item) => {
       return "graphic" in item && item.graphic?.layer === treeLayer;
     });
@@ -160,13 +176,14 @@ onMounted(() => {
     view.destroy();
     viewRef.value = null;
     layerRef.value = null;
+    photoSpotLayerRef.value = null;
     overlayLayerRef.value = null;
   });
 });
 
 // Update graphics when trees/filters change
 watch(
-  () => [props.trees, props.selectedTree, props.speciesColors],
+  () => [props.trees, props.selectedTree, props.speciesColors, props.highlightedTreeIds],
   () => {
     const layer = layerRef.value;
     if (!layer) return;
@@ -174,13 +191,14 @@ watch(
     layer.removeAll();
     const graphics = props.trees.map((tree) => {
       const isSelected = props.selectedTree?.id === tree.id;
+      const isHighlighted = props.highlightedTreeIds.includes(tree.id);
       const symbol = new SimpleMarkerSymbol({
         style: "circle",
         color: props.speciesColors[tree.species] ?? "#4B7F52",
-        size: getDbhSize(tree.dbh) + (isSelected ? 5 : 0),
+        size: getDbhSize(tree.dbh) + (isSelected ? 5 : 0) + (isHighlighted ? 7 : 0),
         outline: {
-          color: isSelected ? "#17251A" : "#ffffff",
-          width: isSelected ? 2.5 : 1,
+          color: isSelected ? "#17251A" : isHighlighted ? "#F2B134" : "#ffffff",
+          width: isSelected || isHighlighted ? 2.5 : 1,
         },
       });
 
@@ -196,6 +214,60 @@ watch(
           dbh: tree.dbh,
         },
       });
+    });
+
+    layer.addMany(graphics);
+  },
+  { deep: true }
+);
+
+// Update photo spot markers
+watch(
+  () => [props.photoSpots, props.selectedPhotoSpotIds],
+  () => {
+    const layer = photoSpotLayerRef.value;
+    if (!layer) return;
+
+    layer.removeAll();
+    const graphics = props.photoSpots.flatMap((spot) => {
+      const isSelected = props.selectedPhotoSpotIds.includes(spot.id);
+      const color = isSelected ? [242, 177, 52, 1] : [230, 106, 44, 0.95];
+      const size = isSelected ? 20 : 16;
+      return [
+        new Graphic({
+          geometry: new Point({
+            longitude: spot.longitude,
+            latitude: spot.latitude,
+          }),
+          symbol: new SimpleMarkerSymbol({
+            style: "diamond",
+            color,
+            size,
+            outline: { color: "#ffffff", width: isSelected ? 3 : 2 },
+          }),
+          attributes: {
+            photoSpotId: spot.id,
+            name: spot.name,
+            type: "photo-spot",
+          },
+        }),
+        new Graphic({
+          geometry: new Point({
+            longitude: spot.longitude,
+            latitude: spot.latitude,
+          }),
+          symbol: new SimpleMarkerSymbol({
+            style: "circle",
+            color: [255, 255, 255, 1],
+            size: isSelected ? 7 : 5,
+          }),
+          attributes: {
+            photoSpotId: spot.id,
+            name: spot.name,
+            type: "photo-spot-core",
+          },
+        }),
+      ];
     });
 
     layer.addMany(graphics);
