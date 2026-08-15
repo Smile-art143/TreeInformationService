@@ -1,17 +1,18 @@
 <script setup>
-import { computed, inject, ref, watch } from "vue";
+import { computed, inject, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Camera, CheckCircle2, ChevronDown, ClipboardList, Compass, Heart, Home, Leaf,
-  ListChecks, MapPinned, Navigation, Route as RouteIcon, Search, Send, UserRound, Wrench
+  ListChecks, MapPinned, Navigation, Route as RouteIcon, Search, Send, UserRound, Wrench, X
 } from "lucide-vue-next";
 import { message } from "ant-design-vue";
 import ArcGISTreeMap from "../components/ArcGISTreeMap.vue";
 import CreateWorkOrderModal from "../components/CreateWorkOrderModal.vue";
 import MobileRoutesSection from "../components/MobileRoutesSection.vue";
 import {
-  healthLabels, healthOptions, issueTypes, leadStatusLabels, roleLabels, statusLabels
+  fetchNearbyTreesMock, healthLabels, healthOptions, issueTypes, leadStatusLabels, roleLabels, statusLabels
 } from "../api/mockApi";
+import { fetchAmapWalkingRoute, isAmapKeyConfigured } from "../api/amap";
 
 const app = inject("appState");
 const route = useRoute();
@@ -46,9 +47,12 @@ const {
   handleLogout,
 } = app;
 
+const isInspectRole = computed(() => role.value === "maintenance" || role.value === "inspector");
+
 const activeTab = computed(() => {
   const tab = route.params.tab || "map";
-  return tab === "routes" && role.value !== "visitor" ? "map" : tab;
+  if (role.value !== "visitor" && (tab === "routes" || tab === "guide")) return "map";
+  return tab;
 });
 const tabItems = computed(() => {
   const items = [
@@ -56,8 +60,8 @@ const tabItems = computed(() => {
   ];
   if (role.value === "visitor") {
     items.push({ key: "routes", label: "路线", icon: RouteIcon });
+    items.push({ key: "guide", label: "导览", icon: Compass });
   }
-  items.push({ key: "guide", label: "导览", icon: Compass });
   items.push({ key: "tasks", label: "任务", icon: ListChecks });
   items.push({ key: "me", label: "我的", icon: UserRound });
   return items;
@@ -84,6 +88,33 @@ const expandedSections = ref({
 });
 const expandedTaskGroups = ref({});
 
+const mobileMapRef = ref(null);
+const currentLocation = ref(null);
+const isLocating = ref(false);
+const isPickingLocation = ref(false);
+const orderRoutePolyline = ref([]);
+const orderRouteMeters = ref(0);
+const orderRouteDuration = ref(0);
+const orderRouteUsingAmap = ref(false);
+const orderRoutePlanning = ref(false);
+
+// 问题树木选择定位（养护 / 巡检）
+const inspectPosition = reactive({ lat: 34.2265, lng: 108.9445 });
+const inspectRadius = ref(10);
+const inspectResults = ref([]);
+const isSearchingInspect = ref(false);
+const inspectSelectedTree = ref(null);
+const isPickingInspectPosition = ref(false);
+const showInspectPanel = ref(false);
+const createOrderPreTree = ref(null);
+let inspectSearchDebounce = null;
+
+// 游客查看树木详情（导览附近树木）
+const showViewTreeDrawer = ref(false);
+const viewingTree = ref(null);
+const viewTreeCameraInput = ref(null);
+
+const leadTargetTree = ref(null);
 const leadPhotos = ref([]);
 const leadForm = ref({
   issueType: issueTypes[0],
@@ -131,6 +162,13 @@ const recentPhotos = computed(() => photoWallPhotos.value.slice(0, 8));
 const isPickingGuideAnchor = computed(() => route.query.return === "guide");
 const pickerTreeOptions = computed(() => trees.value.slice(0, 6));
 const navigationActionLabel = computed(() => role.value === "maintenance" ? "处置" : "复核");
+const currentLocationLabel = computed(() => {
+  if (!currentLocation.value) return "未定位";
+  return `${Number(currentLocation.value.lat).toFixed(5)}, ${Number(currentLocation.value.lng).toFixed(5)}`;
+});
+const orderRouteDurationMinutes = computed(() =>
+  orderRouteDuration.value ? Math.max(1, Math.round(orderRouteDuration.value / 60)) : 0
+);
 const treeSheetClass = computed(() => `sheet-${treeSheetLevel.value}`);
 const guideAnchorLabel = computed(() => {
   if (!guideAnchorLocation.value) return "未选择";
@@ -236,10 +274,14 @@ watch(selectedTree, (tree) => {
   if (tree) treeSheetLevel.value = "mid";
 });
 
+watch(mobileNavigationOrder, (order) => {
+  if (!order) clearOrderRoute();
+});
+
 watch(
   [role, () => route.params.tab],
   ([currentRole, tab]) => {
-    if (tab === "routes" && currentRole !== "visitor") {
+    if (currentRole !== "visitor" && (tab === "routes" || tab === "guide")) {
       router.replace("/mobile/map");
     }
   }
@@ -278,6 +320,9 @@ function handleTreeSelect(tree) {
     return;
   }
   setSelectedTree(tree);
+  if (showInspectPanel.value && isInspectRole.value) {
+    inspectSelectedTree.value = tree;
+  }
 }
 
 function setTreeSheetLevelByDirection(deltaY) {
@@ -335,6 +380,21 @@ function setGuideAnchorLocation(location) {
 }
 
 function handleMapClick({ latitude, longitude }) {
+  if (isPickingLocation.value) {
+    currentLocation.value = { lat: latitude, lng: longitude };
+    isPickingLocation.value = false;
+    message.success("已设置当前位置");
+    planOrderRoute();
+    return;
+  }
+  if (isPickingInspectPosition.value) {
+    inspectPosition.lat = latitude;
+    inspectPosition.lng = longitude;
+    isPickingInspectPosition.value = false;
+    message.success("已设置定位点");
+    searchInspectTrees();
+    return;
+  }
   if (!isPickingGuideAnchor.value) return;
   setGuideAnchorLocation({ latitude, longitude, name: "地图选点" });
 }
@@ -357,12 +417,13 @@ function startTreeGuide(tree = selectedTree.value) {
   goTab("guide");
 }
 
-function openLeadForTree() {
-  if (!selectedTree.value) return;
+function openLeadForTree(tree = selectedTree.value) {
+  if (!tree) return;
+  leadTargetTree.value = tree;
   leadForm.value = {
     issueType: issueTypes[0],
     issueDescription: "",
-    locationDescription: selectedTree.value.locationDescription || "",
+    locationDescription: tree.locationDescription || "",
   };
   leadPhotos.value = [];
   showLeadDrawer.value = true;
@@ -377,7 +438,7 @@ function toPhotoRecords(fileList) {
 }
 
 function submitLead() {
-  if (!selectedTree.value) return;
+  if (!leadTargetTree.value) return;
   if (!leadForm.value.issueDescription.trim()) {
     message.error("请填写问题描述");
     return;
@@ -391,7 +452,7 @@ function submitLead() {
   createVisitorLead({
     id: `lead-${Date.now()}`,
     leadNo: `LEAD-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(Math.random() * 900 + 100)}`,
-    treeId: selectedTree.value.id,
+    treeId: leadTargetTree.value.id,
     status: "new",
     issueType: leadForm.value.issueType,
     issueDescription: leadForm.value.issueDescription,
@@ -414,6 +475,41 @@ function checkInTree(tree = selectedTree.value) {
     photoUrl: tree.photos?.[0],
   });
   message.success(`已打卡 ${tree.code}`);
+}
+
+function openViewTree(tree) {
+  viewingTree.value = tree;
+  showViewTreeDrawer.value = true;
+}
+
+function closeViewTree() {
+  showViewTreeDrawer.value = false;
+}
+
+function openLeadFromViewTree() {
+  const tree = viewingTree.value;
+  if (!tree) return;
+  showViewTreeDrawer.value = false;
+  openLeadForTree(tree);
+}
+
+function triggerViewTreeCamera() {
+  viewTreeCameraInput.value?.click();
+}
+
+function onViewTreeCameraCapture(event) {
+  const file = event.target.files?.[0];
+  if (!file || !viewingTree.value) return;
+  const photoUrl = URL.createObjectURL(file);
+  addCheckIn({
+    treeId: viewingTree.value.id,
+    treeCode: viewingTree.value.code,
+    species: viewingTree.value.species,
+    photoUrl,
+  });
+  showViewTreeDrawer.value = false;
+  message.success(`打卡成功，解锁 ${viewingTree.value.species} 图鉴`);
+  event.target.value = "";
 }
 
 function handleCreateOrder(order) {
@@ -442,15 +538,167 @@ function navigateToOrder(order) {
   const tree = treeById(order.treeId);
   activeOrder.value = order;
   mobileNavigationOrder.value = order;
+  showInspectPanel.value = false;
+  isPickingInspectPosition.value = false;
+  clearOrderRoute();
   if (tree) {
     setSelectedTree(tree);
   }
   router.push("/mobile/map");
   message.success(tree ? `已在地图定位 ${tree.code}` : "已进入地图导航");
+  if (currentLocation.value) {
+    planOrderRoute();
+  }
 }
 
 function clearMobileNavigationOrder() {
   mobileNavigationOrder.value = null;
+  clearOrderRoute();
+}
+
+function locateCurrentPosition() {
+  if (!navigator.geolocation) {
+    message.warning("您的浏览器不支持地理定位");
+    return;
+  }
+  isLocating.value = true;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      currentLocation.value = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      isLocating.value = false;
+      message.success("已定位当前位置");
+      planOrderRoute();
+    },
+    (error) => {
+      isLocating.value = false;
+      if (error.code === 1) {
+        message.error("定位权限被拒绝，请在浏览器设置中允许定位");
+      } else {
+        message.error("获取定位失败，请稍后重试");
+      }
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+  );
+}
+
+function startPickCurrentLocation() {
+  isPickingLocation.value = true;
+  message.info("请在地图上点击选择当前位置");
+}
+
+// ---- 问题树木选择定位 ----
+function toggleInspectPanel() {
+  showInspectPanel.value = !showInspectPanel.value;
+  if (showInspectPanel.value) {
+    updateInspectMapOverlays();
+    if (inspectResults.value.length === 0) searchInspectTrees();
+  } else {
+    mobileMapRef.value?.clearCustomOverlays();
+    isPickingInspectPosition.value = false;
+  }
+}
+
+function updateInspectMapOverlays() {
+  const map = mobileMapRef.value;
+  if (!map) return;
+  map.clearCustomOverlays();
+  map.showLocationMarker(inspectPosition.lat, inspectPosition.lng);
+  map.showRadiusCircle(inspectPosition.lat, inspectPosition.lng, inspectRadius.value);
+  if (inspectResults.value.length > 0) {
+    map.showNearbyHighlight(inspectResults.value);
+  }
+}
+
+async function searchInspectTrees() {
+  isSearchingInspect.value = true;
+  try {
+    inspectResults.value = await fetchNearbyTreesMock(
+      trees.value, inspectPosition.lat, inspectPosition.lng, inspectRadius.value
+    );
+  } finally {
+    isSearchingInspect.value = false;
+    updateInspectMapOverlays();
+  }
+}
+
+function onInspectCoordChange() {
+  clearTimeout(inspectSearchDebounce);
+  inspectSearchDebounce = setTimeout(() => searchInspectTrees(), 600);
+}
+
+function onInspectRadiusChange() {
+  searchInspectTrees();
+}
+
+function selectInspectTree(tree) {
+  inspectSelectedTree.value = tree;
+}
+
+function startPickInspectPosition() {
+  isPickingInspectPosition.value = true;
+  message.info("请在地图上点击选择定位点");
+}
+
+function openCreateOrder(tree) {
+  createOrderPreTree.value = tree;
+  showCreateOrderModal.value = true;
+}
+
+function clearOrderRoute() {
+  orderRoutePolyline.value = [];
+  orderRouteMeters.value = 0;
+  orderRouteDuration.value = 0;
+  orderRouteUsingAmap.value = false;
+  mobileMapRef.value?.clearCustomOverlays();
+}
+
+async function planOrderRoute() {
+  const tree = mobileNavigationTree.value;
+  if (!tree) return;
+  clearOrderRoute();
+
+  if (!currentLocation.value) {
+    message.info("请先定位当前位置");
+    return;
+  }
+
+  const statusType = role.value === "maintenance" ? "processing" : "reviewing";
+  const map = mobileMapRef.value;
+  map?.showLocationMarker(currentLocation.value.lat, currentLocation.value.lng);
+  map?.showTargetMarker(tree.latitude, tree.longitude, statusType, tree.dbh);
+
+  if (!isAmapKeyConfigured()) {
+    map?.showNavigationLine(
+      currentLocation.value.lat, currentLocation.value.lng,
+      tree.latitude, tree.longitude
+    );
+    message.info("未配置高德 Key，已用直线示意");
+    return;
+  }
+
+  orderRoutePlanning.value = true;
+  try {
+    const route = await fetchAmapWalkingRoute(currentLocation.value, {
+      lat: tree.latitude,
+      lng: tree.longitude,
+    });
+    orderRoutePolyline.value = route.polyline;
+    orderRouteMeters.value = route.distanceMeters;
+    orderRouteDuration.value = route.durationSeconds;
+    orderRouteUsingAmap.value = true;
+    map?.showRoutePolyline(route.polyline);
+    const centerLat = (Number(currentLocation.value.lat) + Number(tree.latitude)) / 2;
+    const centerLng = (Number(currentLocation.value.lng) + Number(tree.longitude)) / 2;
+    map?.flyTo(centerLat, centerLng, 17);
+  } catch (error) {
+    map?.showNavigationLine(
+      currentLocation.value.lat, currentLocation.value.lng,
+      tree.latitude, tree.longitude
+    );
+    message.warning("高德路线规划失败，已用直线示意");
+  } finally {
+    orderRoutePlanning.value = false;
+  }
 }
 
 function openOrderDrawer(order = mobileNavigationOrder.value) {
@@ -560,6 +808,7 @@ function submitReview(passed) {
     <section v-show="activeTab === 'map'" class="mobile-screen mobile-map-screen">
       <div class="mobile-map-wrap">
         <ArcGISTreeMap
+          ref="mobileMapRef"
           :trees="filteredTrees"
           :selected-tree="selectedTree"
           :species-colors="speciesColors"
@@ -580,7 +829,105 @@ function submitReview(passed) {
         </a-auto-complete>
       </div>
 
-      <div v-if="isPickingGuideAnchor" class="mobile-map-picker-card">
+      <button
+        v-if="isInspectRole"
+        type="button"
+        class="mobile-inspect-fab"
+        :class="{ active: showInspectPanel }"
+        @click="toggleInspectPanel"
+      >
+        <MapPinned :size="16" />问题树木定位
+      </button>
+
+      <div v-if="isInspectRole && showInspectPanel && !mobileNavigationOrder" class="mobile-inspect-panel">
+        <div class="mobile-inspect-head">
+          <span class="mobile-inspect-title"><MapPinned :size="17" />问题树木选择定位</span>
+          <button type="button" class="mobile-inspect-close" aria-label="关闭" @click="toggleInspectPanel"><X :size="18" /></button>
+        </div>
+
+        <div class="mobile-inspect-coords">
+          <a-input
+            :value="inspectPosition.lat.toFixed(6)"
+            size="small"
+            @change="(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) { inspectPosition.lat = v; onInspectCoordChange(); } }"
+          >
+            <template #addonBefore>纬度</template>
+          </a-input>
+          <a-input
+            :value="inspectPosition.lng.toFixed(6)"
+            size="small"
+            @change="(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) { inspectPosition.lng = v; onInspectCoordChange(); } }"
+          >
+            <template #addonBefore>经度</template>
+          </a-input>
+        </div>
+
+        <p class="mobile-inspect-hint">
+          点击地图选点或修改坐标，自动搜索半径内的树木 · 当前：{{ inspectPosition.lat.toFixed(6) }}, {{ inspectPosition.lng.toFixed(6) }}
+        </p>
+
+        <div class="mobile-inspect-controls">
+          <a-select
+            v-model:value="inspectRadius"
+            size="small"
+            :options="[
+              { label: '5 米', value: 5 },
+              { label: '10 米', value: 10 },
+              { label: '20 米', value: 20 },
+              { label: '50 米', value: 50 },
+            ]"
+            style="width: 96px;"
+            @change="onInspectRadiusChange"
+          />
+          <a-button size="small" :type="isPickingInspectPosition ? 'primary' : 'default'" @click="startPickInspectPosition">
+            <MapPinned :size="14" />地图选点
+          </a-button>
+          <a-button size="small" type="primary" :loading="isSearchingInspect" @click="searchInspectTrees">
+            <Search :size="14" />搜索
+          </a-button>
+        </div>
+
+        <div class="mobile-inspect-results">
+          <div v-if="isSearchingInspect" class="mobile-inspect-empty"><a-spin size="small" /> 正在搜索周边树木…</div>
+          <div v-else-if="inspectResults.length === 0" class="mobile-inspect-empty">该范围内未找到树木，请调整位置或半径</div>
+          <template v-else>
+            <button
+              v-for="tree in inspectResults"
+              :key="tree.id"
+              type="button"
+              :class="['mobile-inspect-tree-row', { active: inspectSelectedTree?.id === tree.id }]"
+              @click="selectInspectTree(tree)"
+            >
+              <span>
+                <strong>{{ tree.code }} / {{ tree.species }}</strong>
+                <em>约 {{ tree.distance }}m · {{ healthLabels[tree.healthStatus] }}</em>
+              </span>
+              <a-tag :color="tree.healthStatus === 'healthy' ? 'green' : tree.healthStatus === 'problem' ? 'red' : 'orange'">
+                {{ healthLabels[tree.healthStatus] }}
+              </a-tag>
+            </button>
+          </template>
+        </div>
+
+        <div v-if="inspectSelectedTree" class="mobile-inspect-detail">
+          <div class="mobile-card-title"><Leaf :size="16" />树木详情核验</div>
+          <img
+            v-if="inspectSelectedTree.photos?.[0]"
+            :src="inspectSelectedTree.photos[0]"
+            :alt="inspectSelectedTree.species"
+            class="mobile-inspect-photo"
+          />
+          <div class="mobile-tree-info-grid">
+            <div><span>编号</span><strong>{{ inspectSelectedTree.code }}</strong></div>
+            <div><span>树种</span><strong>{{ inspectSelectedTree.species }}</strong></div>
+            <div><span>位置</span><strong>{{ inspectSelectedTree.siteName || "未记录" }}</strong></div>
+            <div><span>胸径</span><strong>{{ inspectSelectedTree.dbh || "未记录" }} cm</strong></div>
+          </div>
+          <a-button type="primary" block @click="openCreateOrder(inspectSelectedTree)">选定此树，创建工单</a-button>
+        </div>
+      </div>
+
+      <div v-else-if="isPickingGuideAnchor" class="mobile-map-picker-card">
         <div class="mobile-card-title"><MapPinned :size="17" />选择导览位置</div>
         <p>点击地图上的任意位置作为导览起点，系统会按这个位置计算附近树木距离。下面列表可快速把位置落在树木附近。</p>
         <div class="mobile-picker-list">
@@ -591,10 +938,31 @@ function submitReview(passed) {
         </div>
       </div>
 
-      <div v-if="mobileNavigationOrder" class="mobile-map-guidance-card">
+      <div v-else-if="mobileNavigationOrder" class="mobile-map-guidance-card">
         <div class="mobile-card-title"><Navigation :size="17" />工单导航</div>
         <div class="mobile-info-row"><span>目标树木</span><strong>{{ mobileNavigationTree?.code }} / {{ mobileNavigationTree?.species }}</strong></div>
         <div class="mobile-info-row"><span>工单编号</span><strong>{{ mobileNavigationOrder.orderNo }}</strong></div>
+        <div class="mobile-info-row"><span>当前位置</span><strong>{{ currentLocationLabel }}</strong></div>
+        <div class="mobile-action-row" style="margin-bottom:8px;">
+          <a-button size="small" :loading="isLocating" @click="locateCurrentPosition">
+            <Navigation :size="14" />定位
+          </a-button>
+          <a-button size="small" :type="isPickingLocation ? 'primary' : 'default'" @click="startPickCurrentLocation">
+            <MapPinned :size="14" />地图选点
+          </a-button>
+          <a-button size="small" :loading="orderRoutePlanning" :disabled="!currentLocation" @click="planOrderRoute">
+            <RouteIcon :size="14" />重新规划
+          </a-button>
+        </div>
+        <div v-if="orderRouteMeters > 0" class="mobile-info-row">
+          <span>路线</span>
+          <strong>
+            {{ orderRouteUsingAmap ? '高德步行' : '直线示意' }}
+            {{ orderRouteMeters >= 1000 ? (orderRouteMeters / 1000).toFixed(1) + 'km' : Math.round(orderRouteMeters) + 'm' }}
+            · 约 {{ orderRouteDurationMinutes }} 分钟
+          </strong>
+        </div>
+        <p v-if="isPickingLocation" style="margin:0 0 8px;font-size:12px;opacity:0.75;">点击地图任意位置作为当前位置</p>
         <div class="mobile-action-row">
           <a-button type="primary" @click="openOrderDrawer(mobileNavigationOrder)">
             到达后{{ navigationActionLabel }}
@@ -603,7 +971,7 @@ function submitReview(passed) {
         </div>
       </div>
 
-      <div v-else-if="selectedTree && !isPickingGuideAnchor" class="mobile-tree-sheet" :class="treeSheetClass">
+      <div v-else-if="selectedTree" class="mobile-tree-sheet" :class="treeSheetClass">
         <button
           type="button"
           class="mobile-sheet-drag-handle"
@@ -638,10 +1006,9 @@ function submitReview(passed) {
             保护等级：{{ selectedTree.protectionLevel || "古树名木" }}
           </p>
           <div class="mobile-action-row">
-            <a-button @click="startTreeGuide(selectedTree)"><Navigation :size="15" />导览</a-button>
+            <a-button v-if="role === 'visitor'" @click="startTreeGuide(selectedTree)"><Navigation :size="15" />导览</a-button>
             <a-button v-if="role === 'visitor'" type="primary" @click="checkInTree()"><Camera :size="15" />打卡</a-button>
-            <a-button v-if="role === 'visitor'" @click="openLeadForTree"><Send :size="15" />线索</a-button>
-            <a-button v-if="role !== 'visitor'" type="primary" @click="showCreateOrderModal = true">
+            <a-button v-if="role !== 'visitor'" type="primary" @click="openCreateOrder(selectedTree)">
               <ClipboardList :size="15" />工单
             </a-button>
           </div>
@@ -686,7 +1053,7 @@ function submitReview(passed) {
             @click="() => { handleTreeSelect(tree); goTab('map'); }"
           >
             <span><strong>{{ tree.code }}</strong>{{ tree.species }} · 约 {{ tree.distanceMeters }} 米</span>
-            <a-button size="small" type="primary" @click.stop="checkInTree(tree)">打卡</a-button>
+            <a-button size="small" type="primary" @click.stop="openViewTree(tree)">查看</a-button>
           </button>
         </div>
       </div>
@@ -937,13 +1304,61 @@ function submitReview(passed) {
       </a-space>
     </a-drawer>
 
+    <a-drawer
+      :open="showViewTreeDrawer"
+      placement="bottom"
+      height="88vh"
+      title="树木详情"
+      class="mobile-bottom-drawer"
+      @close="closeViewTree"
+    >
+      <a-space v-if="viewingTree" direction="vertical" class="full-width" :size="14">
+        <img
+          v-if="viewingTree.photos?.[0]"
+          :src="viewingTree.photos[0]"
+          :alt="viewingTree.species"
+          class="mobile-view-tree-photo"
+        />
+        <div class="mobile-card compact">
+          <div class="mobile-info-row"><span>编号</span><strong>{{ viewingTree.code }}</strong></div>
+          <div class="mobile-info-row"><span>树种</span><strong>{{ viewingTree.species }}</strong></div>
+          <div class="mobile-info-row"><span>位置</span><strong>{{ viewingTree.siteName }}</strong></div>
+          <div class="mobile-info-row"><span>胸径</span><strong>{{ viewingTree.dbh ? viewingTree.dbh + ' cm' : '未记录' }}</strong></div>
+          <div class="mobile-info-row"><span>坐标</span><strong>{{ viewingTree.longitude?.toFixed(6) }}, {{ viewingTree.latitude?.toFixed(6) }}</strong></div>
+          <div class="mobile-info-row"><span>类型</span><strong>{{ viewingTree.treeType || '普通树木' }}</strong></div>
+          <div class="mobile-info-row"><span>保护等级</span><strong>{{ viewingTree.protectionLevel || '无' }}</strong></div>
+        </div>
+        <div v-if="viewingTree.story" class="mobile-card compact">
+          <div class="mobile-card-title">资料卡片</div>
+          <p class="mobile-drawer-copy">{{ viewingTree.story }}</p>
+        </div>
+        <input
+          ref="viewTreeCameraInput"
+          type="file"
+          capture="environment"
+          accept="image/*"
+          style="display: none"
+          @change="onViewTreeCameraCapture"
+        />
+        <div class="mobile-action-row">
+          <a-button type="primary" size="large" @click="triggerViewTreeCamera">
+            <Camera :size="18" />拍照打卡
+          </a-button>
+          <a-button size="large" @click="openLeadFromViewTree">
+            <Send :size="18" />线索
+          </a-button>
+        </div>
+        <p class="mobile-view-tree-hint">拍照后自动发布至照片墙，并解锁该树种图鉴</p>
+      </a-space>
+    </a-drawer>
+
     <CreateWorkOrderModal
       :open="showCreateOrderModal"
       :trees="trees"
       :role="role"
       :current-user="currentUser"
       :current-user-name="currentUserName"
-      :pre-selected-tree="selectedTree"
+      :pre-selected-tree="createOrderPreTree"
       @close="showCreateOrderModal = false"
       @create-order="handleCreateOrder"
       @update-tree="updateTree"

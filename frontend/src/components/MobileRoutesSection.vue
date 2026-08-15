@@ -4,6 +4,7 @@ import { message } from "ant-design-vue";
 import { Camera, CheckCircle2, MapPin, Navigation, Route as RouteIcon, Trees, X } from "lucide-vue-next";
 import ArcGISTreeMap from "./ArcGISTreeMap.vue";
 import { bearingToText, calculateBearing, haversineDistance } from "../api/mockApi";
+import { isAmapKeyConfigured, planAmapWalkingRoute } from "../api/amap";
 import { photoSpots as allPhotoSpots } from "../data/photoSpots";
 
 const app = inject("appState");
@@ -49,6 +50,12 @@ const isPickingDestination = ref(false);
 const navigationActive = ref(false);
 const routeOrder = ref([]);
 const routeTotalMeters = ref(0);
+const amapPolylines = ref([]);
+const routeUsingAmap = ref(false);
+const isPlanningRoute = ref(false);
+const routeDurationSeconds = ref(0);
+const routePanelLevel = ref("mid");
+const panelDrag = ref({ active: false, startY: 0, currentY: 0, moved: false });
 
 const windowTrees = computed(() => {
   if (!matchedPark.value || !selectedWindow.value) return [];
@@ -69,8 +76,47 @@ const positionLabel = computed(() => {
   return `${Number(currentPosition.value.lat).toFixed(5)}, ${Number(currentPosition.value.lng).toFixed(5)}`;
 });
 const destinationLabel = computed(() => destination.value?.name || "未选择");
-const routeDurationMinutes = computed(() => Math.max(1, Math.round(routeTotalMeters.value / 80)));
+const routeDurationMinutes = computed(() =>
+  routeDurationSeconds.value
+    ? Math.max(1, Math.round(routeDurationSeconds.value / 60))
+    : Math.max(1, Math.round(routeTotalMeters.value / 80))
+);
 const businessTitle = computed(() => (business.value === "photo" ? "拍照机位路线" : "季节主题路线"));
+const routePanelClass = computed(() => `panel-${routePanelLevel.value}`);
+
+function setRoutePanelLevelByDirection(deltaY) {
+  if (deltaY < -22) {
+    routePanelLevel.value = "expanded";
+    return;
+  }
+  if (deltaY > 22) {
+    routePanelLevel.value = routePanelLevel.value === "expanded" ? "mid" : "compact";
+  }
+}
+
+function handleRoutePanelPointerDown(event) {
+  panelDrag.value = { active: true, startY: event.clientY, currentY: event.clientY, moved: false };
+  event.currentTarget?.setPointerCapture?.(event.pointerId);
+}
+
+function handleRoutePanelPointerMove(event) {
+  if (!panelDrag.value.active) return;
+  const deltaY = event.clientY - panelDrag.value.startY;
+  panelDrag.value = { ...panelDrag.value, currentY: event.clientY, moved: Math.abs(deltaY) > 8 };
+  setRoutePanelLevelByDirection(deltaY);
+}
+
+function handleRoutePanelPointerUp(event) {
+  if (!panelDrag.value.active) return;
+  const deltaY = event.clientY - panelDrag.value.startY;
+  if (!panelDrag.value.moved) {
+    routePanelLevel.value = routePanelLevel.value === "expanded" ? "compact" : "expanded";
+  } else {
+    setRoutePanelLevelByDirection(deltaY);
+  }
+  panelDrag.value = { active: false, startY: 0, currentY: 0, moved: false };
+  event.currentTarget?.releasePointerCapture?.(event.pointerId);
+}
 
 function openSeasonalRoute() {
   business.value = "seasonal";
@@ -99,6 +145,10 @@ function resetRouteState() {
   navigationActive.value = false;
   routeOrder.value = [];
   routeTotalMeters.value = 0;
+  amapPolylines.value = [];
+  routeUsingAmap.value = false;
+  isPlanningRoute.value = false;
+  routeDurationSeconds.value = 0;
   clearMapOverlays();
 }
 
@@ -148,6 +198,9 @@ function selectWindow(window) {
   navigationActive.value = false;
   routeOrder.value = [];
   routeTotalMeters.value = 0;
+  amapPolylines.value = [];
+  routeUsingAmap.value = false;
+  routeDurationSeconds.value = 0;
   clearMapOverlays();
   if (windowTrees.value.length === 0) {
     message.warning("该观赏窗口暂无对应树木数据");
@@ -239,7 +292,7 @@ function setDestination(point) {
   message.success("终点已选择，可开始导航");
 }
 
-function startNavigation() {
+async function startNavigation() {
   if (!matchedPark.value) return;
   if (business.value === "photo" && selectedPhotoSpotIds.value.length === 0) {
     message.info("请至少选择一个机位点位作为途经点");
@@ -265,6 +318,27 @@ function startNavigation() {
       sum + haversineDistance(point.lat, point.lng, ordered[index + 1].lat, ordered[index + 1].lng),
     0
   );
+  routeUsingAmap.value = false;
+  amapPolylines.value = [];
+  routeDurationSeconds.value = 0;
+
+  if (isAmapKeyConfigured()) {
+    isPlanningRoute.value = true;
+    try {
+      const result = await planAmapWalkingRoute(ordered);
+      amapPolylines.value = result.polylines;
+      routeUsingAmap.value = true;
+      routeTotalMeters.value = result.totalMeters;
+      routeDurationSeconds.value = result.totalSeconds;
+    } catch (error) {
+      message.warning("高德路线规划失败，已用直线距离估算");
+    } finally {
+      isPlanningRoute.value = false;
+    }
+  } else {
+    message.info("未配置高德 Key，已用直线距离估算");
+  }
+
   navigationActive.value = true;
   drawNavigationRoute();
   message.success(`已规划 ${waypoints.length} 个途经点的路线`);
@@ -341,10 +415,14 @@ function drawNavigationRoute() {
   const first = routeOrder.value[0];
   const last = routeOrder.value[routeOrder.value.length - 1];
   map.showLocationMarker(first.lat, first.lng);
-  for (let i = 0; i < routeOrder.value.length - 1; i++) {
-    const from = routeOrder.value[i];
-    const to = routeOrder.value[i + 1];
-    map.showNavigationLine(from.lat, from.lng, to.lat, to.lng);
+  if (routeUsingAmap.value && amapPolylines.value.length > 0) {
+    amapPolylines.value.forEach((polyline) => map.showRoutePolyline(polyline));
+  } else {
+    for (let i = 0; i < routeOrder.value.length - 1; i++) {
+      const from = routeOrder.value[i];
+      const to = routeOrder.value[i + 1];
+      map.showNavigationLine(from.lat, from.lng, to.lat, to.lng);
+    }
   }
   map.showTargetMarker(last.lat, last.lng, "destination", null);
 
@@ -356,6 +434,9 @@ function endNavigation() {
   navigationActive.value = false;
   routeOrder.value = [];
   routeTotalMeters.value = 0;
+  amapPolylines.value = [];
+  routeUsingAmap.value = false;
+  routeDurationSeconds.value = 0;
   clearMapOverlays();
   if (business.value === "photo" && selectedPhotoSpots.value.length) {
     const center = getCenter(selectedPhotoSpots.value);
@@ -409,7 +490,20 @@ function getCenter(points) {
       />
     </div>
 
-    <div class="mobile-route-panel">
+    <div class="mobile-route-panel" :class="routePanelClass">
+      <button
+        type="button"
+        class="mobile-route-panel-handle"
+        aria-label="拖动调整路线面板高度"
+        @pointerdown="handleRoutePanelPointerDown"
+        @pointermove="handleRoutePanelPointerMove"
+        @pointerup="handleRoutePanelPointerUp"
+        @pointercancel="handleRoutePanelPointerUp"
+      >
+        <span></span>
+        <em>{{ routePanelLevel === 'expanded' ? '下滑收起' : '上滑展开' }}</em>
+      </button>
+
       <template v-if="business === null">
         <div class="mobile-card-title"><RouteIcon :size="17" />路线服务</div>
         <p class="mobile-route-copy">选择一种路线服务，系统会根据当前位置推荐对应景区的游览方案。</p>
@@ -540,6 +634,7 @@ function getCenter(points) {
                 <a-button
                   type="primary"
                   :disabled="business === 'photo' && selectedPhotoSpotIds.length === 0"
+                  :loading="isPlanningRoute"
                   @click="startNavigation"
                 >
                   <Navigation :size="14" />开始导航
@@ -555,6 +650,9 @@ function getCenter(points) {
               <div><strong>{{ routeDurationMinutes }}</strong><span>分钟</span></div>
               <div><strong>{{ routeOrder.length - 2 }}</strong><span>途经点</span></div>
             </div>
+            <p class="mobile-route-hint" style="text-align:center;margin-top:8px;">
+              {{ routeUsingAmap ? "高德步行路线 · 实时路径" : "直线距离估算（未配置高德 Key）" }}
+            </p>
 
             <div class="mobile-route-steps">
               <div

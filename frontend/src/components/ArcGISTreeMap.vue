@@ -130,7 +130,7 @@ onMounted(() => {
     zoom: 18,
     constraints: {
       minZoom: 14,
-      maxZoom: 19,
+      maxZoom: 18,
     },
     popupEnabled: false,
   });
@@ -140,6 +140,11 @@ onMounted(() => {
   layerRef.value = markRaw(treeLayer);
   photoSpotLayerRef.value = markRaw(photoSpotLayer);
   overlayLayerRef.value = markRaw(overlayLayer);
+
+  // Draw the initial tree / photo-spot points right away, so the basemap
+  // shows all points on entry instead of waiting for a filter/select change.
+  renderTrees();
+  renderPhotoSpots();
 
   const clickHandle = view.on("click", async (event) => {
     const response = await view.hitTest(event);
@@ -181,97 +186,103 @@ onMounted(() => {
   });
 });
 
+// Render tree point graphics onto the tree layer
+function renderTrees() {
+  const layer = layerRef.value;
+  if (!layer) return;
+
+  layer.removeAll();
+  const graphics = props.trees.map((tree) => {
+    const isSelected = props.selectedTree?.id === tree.id;
+    const isHighlighted = props.highlightedTreeIds.includes(tree.id);
+    const symbol = new SimpleMarkerSymbol({
+      style: "circle",
+      color: props.speciesColors[tree.species] ?? "#4B7F52",
+      size: getDbhSize(tree.dbh) + (isSelected ? 5 : 0) + (isHighlighted ? 7 : 0),
+      outline: {
+        color: isSelected ? "#17251A" : isHighlighted ? "#F2B134" : "#ffffff",
+        width: isSelected || isHighlighted ? 2.5 : 1,
+      },
+    });
+
+    return new Graphic({
+      geometry: new Point({
+        longitude: tree.longitude,
+        latitude: tree.latitude,
+      }),
+      symbol,
+      attributes: {
+        treeId: tree.id,
+        species: tree.species,
+        dbh: tree.dbh,
+      },
+    });
+  });
+
+  layer.addMany(graphics);
+}
+
+// Render photo spot markers onto the photo spot layer
+function renderPhotoSpots() {
+  const layer = photoSpotLayerRef.value;
+  if (!layer) return;
+
+  layer.removeAll();
+  const graphics = props.photoSpots.flatMap((spot) => {
+    const isSelected = props.selectedPhotoSpotIds.includes(spot.id);
+    const color = isSelected ? [242, 177, 52, 1] : [230, 106, 44, 0.95];
+    const size = isSelected ? 20 : 16;
+    return [
+      new Graphic({
+        geometry: new Point({
+          longitude: spot.longitude,
+          latitude: spot.latitude,
+        }),
+        symbol: new SimpleMarkerSymbol({
+          style: "diamond",
+          color,
+          size,
+          outline: { color: "#ffffff", width: isSelected ? 3 : 2 },
+        }),
+        attributes: {
+          photoSpotId: spot.id,
+          name: spot.name,
+          type: "photo-spot",
+        },
+      }),
+      new Graphic({
+        geometry: new Point({
+          longitude: spot.longitude,
+          latitude: spot.latitude,
+        }),
+        symbol: new SimpleMarkerSymbol({
+          style: "circle",
+          color: [255, 255, 255, 1],
+          size: isSelected ? 7 : 5,
+        }),
+        attributes: {
+          photoSpotId: spot.id,
+          name: spot.name,
+          type: "photo-spot-core",
+        },
+      }),
+    ];
+  });
+
+  layer.addMany(graphics);
+}
+
 // Update graphics when trees/filters change
 watch(
   () => [props.trees, props.selectedTree, props.speciesColors, props.highlightedTreeIds],
-  () => {
-    const layer = layerRef.value;
-    if (!layer) return;
-
-    layer.removeAll();
-    const graphics = props.trees.map((tree) => {
-      const isSelected = props.selectedTree?.id === tree.id;
-      const isHighlighted = props.highlightedTreeIds.includes(tree.id);
-      const symbol = new SimpleMarkerSymbol({
-        style: "circle",
-        color: props.speciesColors[tree.species] ?? "#4B7F52",
-        size: getDbhSize(tree.dbh) + (isSelected ? 5 : 0) + (isHighlighted ? 7 : 0),
-        outline: {
-          color: isSelected ? "#17251A" : isHighlighted ? "#F2B134" : "#ffffff",
-          width: isSelected || isHighlighted ? 2.5 : 1,
-        },
-      });
-
-      return new Graphic({
-        geometry: new Point({
-          longitude: tree.longitude,
-          latitude: tree.latitude,
-        }),
-        symbol,
-        attributes: {
-          treeId: tree.id,
-          species: tree.species,
-          dbh: tree.dbh,
-        },
-      });
-    });
-
-    layer.addMany(graphics);
-  },
+  renderTrees,
   { deep: true }
 );
 
 // Update photo spot markers
 watch(
   () => [props.photoSpots, props.selectedPhotoSpotIds],
-  () => {
-    const layer = photoSpotLayerRef.value;
-    if (!layer) return;
-
-    layer.removeAll();
-    const graphics = props.photoSpots.flatMap((spot) => {
-      const isSelected = props.selectedPhotoSpotIds.includes(spot.id);
-      const color = isSelected ? [242, 177, 52, 1] : [230, 106, 44, 0.95];
-      const size = isSelected ? 20 : 16;
-      return [
-        new Graphic({
-          geometry: new Point({
-            longitude: spot.longitude,
-            latitude: spot.latitude,
-          }),
-          symbol: new SimpleMarkerSymbol({
-            style: "diamond",
-            color,
-            size,
-            outline: { color: "#ffffff", width: isSelected ? 3 : 2 },
-          }),
-          attributes: {
-            photoSpotId: spot.id,
-            name: spot.name,
-            type: "photo-spot",
-          },
-        }),
-        new Graphic({
-          geometry: new Point({
-            longitude: spot.longitude,
-            latitude: spot.latitude,
-          }),
-          symbol: new SimpleMarkerSymbol({
-            style: "circle",
-            color: [255, 255, 255, 1],
-            size: isSelected ? 7 : 5,
-          }),
-          attributes: {
-            photoSpotId: spot.id,
-            name: spot.name,
-            type: "photo-spot-core",
-          },
-        }),
-      ];
-    });
-
-    layer.addMany(graphics);
-  },
+  renderPhotoSpots,
   { deep: true }
 );
 
@@ -447,6 +458,24 @@ defineExpose({
         style: "dash",
       }),
       attributes: { type: "navigation-line" },
+    }));
+  },
+  showRoutePolyline(points) {
+    const layer = overlayLayerRef.value;
+    if (!layer || !points || points.length < 2) return;
+    layer.add(new Graphic({
+      geometry: new Polyline({
+        paths: [points],
+        spatialReference: { wkid: 4326 },
+      }),
+      symbol: new SimpleLineSymbol({
+        color: [22, 119, 255, 0.9],
+        width: 5,
+        style: "solid",
+        cap: "round",
+        join: "round",
+      }),
+      attributes: { type: "amap-route" },
     }));
   },
 });
