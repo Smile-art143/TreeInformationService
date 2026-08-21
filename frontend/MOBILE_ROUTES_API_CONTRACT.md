@@ -7,8 +7,8 @@
 本文档供后端负责人与开发人员对接以下移动端功能：
 
 - 路线入口：MobilePage 底栏“路线”Tab，仅 `visitor`（游客）身份可见。
-- 拍照机位路线：按景区展示拍照机位点位，支持机位详情、多选途经点、自定义终点、最短路径导航。
-- 季节主题路线：按景区展示“观赏窗口”，高亮窗口对应树木，以树木为途经点规划最短路径并导航。
+- 拍照机位路线：按景区展示拍照机位点位，支持机位详情、多选途经点、从机位中指定一个作为终点（终点与途经点互斥）、最短路径导航。
+- 季节主题路线：按景区展示“观赏窗口”，高亮窗口对应树木，以树木为途经点规划最短路径，并从窗口树木中指定一个作为终点。
 
 当前前端已实现完整交互闭环，数据来自 `src/data/photoSpots.js` 与 `MobileRoutesSection.vue` 内的本地常量。接入后端后，前端将使用以下接口替换本地 mock，不再自行维护园区缓冲区、机位点位、观赏窗口与路径规划逻辑。
 
@@ -20,7 +20,7 @@
 4. 季节主题观赏窗口为园区静态配置，窗口通过 `species` 列表与树木关联；后端按 `siteId + species` 返回窗口树木，前端不做树种拼装。
 5. 路径规划由后端负责：前端提交 `parkId/businessType/start/destination/waypoints`，后端返回有序途经点、总距离与预计时间。当前无地图路网服务时，按 Haversine 直线距离 + 最近邻/2-opt 近似计算；后续接入路网导航只影响内部实现，不改变接口契约。
 6. 路线规划结果不落库，不提供路线历史、路线分享接口；`planId` 仅作为幂等与追踪预留，后端可返回空字符串。
-7. 自定义终点可以是地图任意坐标，也可以选择树或机位点位；后端只校验坐标合法性，不要求终点位于园区缓冲区内。
+7. 终点不再支持自定义任意坐标：终点必须从途经点来源点位中指定一个（`photo` 为园区机位、`seasonal` 为窗口树木），且该点位不得同时作为途经点；后端校验终点 id 归属（景区/窗口）且不与途经点重复，不要求终点位于园区缓冲区内。
 8. `businessType = photo` 时至少选择 1 个机位途经点；`businessType = seasonal` 时由 `windowKey` 决定窗口，途经点可传空（后端按窗口全量树木生成）或传窗口内树木子集。
 
 ## 2. 通用约定
@@ -76,7 +76,7 @@
 | HTTP | code | 场景 |
 |---|---|---|
 | 400 | 40001 | 缺少必填参数（`parkId/businessType/start/destination` 等） |
-| 400 | 40002 | 参数不合法（坐标越界、`windowKey` 不存在、途经点类型错误、机位途经点不足） |
+| 400 | 40002 | 参数不合法（坐标越界、`windowKey` 不存在、途经点/终点类型错误、终点与途经点重复、机位途经点不足） |
 | 401 | 40101 | 未登录或 token 失效 |
 | 403 | 40302 | 非游客访问路线接口 |
 | 404 | 40401 | 景区、机位点位或观赏窗口不存在 |
@@ -136,7 +136,7 @@
 | businessType | enum | 是 | `photo/seasonal` |
 | windowKey | string | seasonal 必填 | 季节主题路线的观赏窗口 key |
 | start | Point | 是 | 起点，`{ longitude, latitude }` |
-| destination | Point | 是 | 自定义终点，`{ longitude, latitude }` |
+| destination | Waypoint | 是 | 终点。从途经点来源点位中指定一个：`photo` 为园区机位、`seasonal` 为窗口树木；不得与 `waypoints` 中任一点位重复 |
 | waypoints | Waypoint[] | 见说明 | 途经点；photo 至少 1 个，seasonal 可空 |
 
 Waypoint：
@@ -157,8 +157,8 @@ Waypoint：
     "latitude": 34.228779
   },
   "destination": {
-    "longitude": 108.9388575,
-    "latitude": 34.2271757
+    "type": "photoSpot",
+    "id": "DX_spot_006"
   },
   "waypoints": [
     {
@@ -188,8 +188,8 @@ RoutePlanPoint：
 |---|---|---|---|
 | seq | number | 是 | 序号，从 0 开始 |
 | type | enum | 是 | `start/waypoint/destination` |
-| refType | enum/null | 否 | 途经点来源类型：`tree/photoSpot`，起终点为 null |
-| refId | string/null | 否 | 树木 code 或机位 id |
+| refType | enum/null | 否 | 点位来源类型：`tree/photoSpot`；起点为 null，途经点与终点返回对应来源 |
+| refId | string/null | 否 | 树木 code 或机位 id；起点为 null |
 | label | string | 是 | 展示名，如 `DX_spot_001 / 红墙` |
 | longitude | number | 是 | 经度 |
 | latitude | number | 是 | 纬度 |
@@ -232,9 +232,9 @@ RoutePlanPoint：
       {
         "seq": 2,
         "type": "destination",
-        "refType": null,
-        "refId": null,
-        "label": "地图选点",
+        "refType": "photoSpot",
+        "refId": "DX_spot_006",
+        "label": "DX_spot_006 / 山门",
         "longitude": 108.9388575,
         "latitude": 34.2271757,
         "distanceFromPrevious": 147.3,
@@ -400,9 +400,10 @@ RoutePlanPoint：
 - 权限：仅游客可调用。
 - 后端职责：
   - 校验 `parkId/businessType/start/destination` 必填。
+  - `destination` 必须为 `Waypoint`（`type` + `id`）：`businessType = photo` 时为园区机位，`businessType = seasonal` 时为窗口树木；`destination` 不得与 `waypoints` 中任一点位重复，否则 `40002`。
   - `businessType = photo` 时，`waypoints` 至少 1 个 `photoSpot`，且 id 必须属于该景区，否则 `40002`。
   - `businessType = seasonal` 时，`windowKey` 必须存在；`waypoints` 可空，为空时后端按窗口全量树木生成；传入的 `tree` 必须属于该窗口，否则 `40002`。
-  - 起点固定为 `start`，终点固定为 `destination`，途经点排序由后端按最短路径算法生成。
+  - 起点固定为 `start`，终点固定为 `destination`（指定机位/树木点位，不计入途经点），途经点排序由后端按最短路径算法生成。
   - 当前算法建议：Haversine 距离 + 最近邻 + 2-opt 优化；接入地图路网后仅替换内部计算，不改变请求/响应字段。
   - 返回 `totalDistance`（米，1 位小数）、`estimatedMinutes`（按步行速度约 80 米/分钟向上取整）、有序 `points`。
 
@@ -423,9 +424,9 @@ RoutePlanPoint：
 2. 园区匹配：后端必须使用 `RoutePark.center + radiusM` 判定缓冲区，不信任前端传入的园区判定结果；未命中返回 `park: null`，HTTP 200。
 3. 机位数据：只读配置数据，坐标缺失或越界的记录不得返回；删除/编辑机位不提供游客接口。
 4. 季节窗口：窗口与树种映射由后端配置维护；窗口树木必须按 `siteId + species` 过滤，前端不做拼装。
-5. 途经点校验：`businessType = photo` 至少 1 个机位途经点；`businessType = seasonal` 的 `windowKey` 必须存在；途经点 id 必须属于请求中的景区。
-6. 坐标校验：`start/destination` 缺少或越界返回 `40001/40002`；机位/树木坐标缺失不得进入路线点。
-7. 路径计算：起点为 `start`、终点为 `destination`；返回点按实际访问顺序排列，`distanceFromPrevious` 与 `bearing` 由后端计算，前端不自行计算。
+5. 途经点与终点校验：`businessType = photo` 至少 1 个机位途经点；`businessType = seasonal` 的 `windowKey` 必须存在；途经点 id 必须属于请求中的景区；`destination` 必须为途经点来源点位之一，且不得与任一途经点重复。
+6. 坐标校验：`start` 缺少或越界返回 `40001/40002`；`destination` 为途经点引用（`type`+`id`），由后端解析坐标，不单独传坐标；机位/树木坐标缺失不得进入路线点。
+7. 路径计算：起点为 `start`、终点为 `destination`（指定机位/树木点位，不计入途经点）；返回点按实际访问顺序排列，`distanceFromPrevious` 与 `bearing` 由后端计算，前端不自行计算。
 8. 不落库：路线规划结果即时返回，不创建路线历史；`planId` 仅作预留，不做强制持久化。
 
 ## 7. 路线静态数据与初始化
@@ -454,7 +455,7 @@ RoutePlanPoint：
 
 ## 8. 前后端职责边界（后端需知）
 
-- 前端职责：移动端页面展示、游客定位采集（浏览器定位或地图选点）、地图点位渲染与高亮、机位详情弹窗、途经点多选、导航结果绘制与步骤展示。
+- 前端职责：移动端页面展示、游客定位采集（浏览器定位或地图选点）、地图点位渲染与高亮、机位详情弹窗、途经点多选与终点指定、导航结果绘制与步骤展示。
 - 后端职责：景区与缓冲区配置、园区匹配、机位点位数据、观赏窗口配置、窗口树木过滤、路线规划计算、权限校验。
 - 前端当前使用本地常量与本地算法，接入后端后替换为 `4.x` 接口；后端字段命名与主契约保持一致，前端不再维护 `PARK_ZONES` 与 `photoSpots.js` 的重复数据。
 - 前端不会在调用规划接口前自行计算最短路径；`RoutePlanResult.points` 的访问顺序以后端返回为准。

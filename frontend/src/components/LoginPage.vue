@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import {
-  Building2, ClipboardList, LockKeyhole, MapPinned, Trees, UserRound
+  Building2, ClipboardList, LockKeyhole, MapPinned, ShieldCheck, Trees, UserRound
 } from "lucide-vue-next";
 import { message } from "ant-design-vue";
 import { demoAccounts, login, register } from "../api/authApi";
@@ -17,7 +17,24 @@ const emit = defineEmits(["enter"]);
 const activeTab = ref("login");
 const isSubmitting = ref(false);
 
-const roleCards = [
+// 登录角色：包含预置管理员角色；注册角色：管理员不开放注册
+// 移动端不提供管理员入口，仅保留游客/巡检/养护三类身份。
+const loginRoleCards = computed(() => {
+  const cards = [
+    { role: "visitor", title: "游客" },
+    { role: "inspector", title: "巡检人员" },
+    { role: "maintenance", title: "养护人员" },
+    { role: "admin", title: "管理员" },
+  ];
+  return props.mobile ? cards.filter((item) => item.role !== "admin") : cards;
+});
+
+// 移动端同样隐藏管理员演示账号，与登录角色卡片保持一致。
+const demoAccountList = computed(() =>
+  props.mobile ? demoAccounts.filter((item) => item.role !== "admin") : demoAccounts
+);
+
+const registerRoleCards = [
   { role: "visitor", title: "游客" },
   { role: "inspector", title: "巡检人员" },
   { role: "maintenance", title: "养护人员" },
@@ -47,6 +64,7 @@ const roleIcon = (role) => {
     case "visitor": return UserRound;
     case "inspector": return MapPinned;
     case "maintenance": return ClipboardList;
+    case "admin": return ShieldCheck;
     default: return UserRound;
   }
 };
@@ -147,7 +165,7 @@ const submitRegister = async () => {
             </a-form-item>
             <a-form-item label="登录角色" required>
               <a-radio-group v-model:value="loginForm.role" class="role-card-group compact">
-                <a-radio-button v-for="item in roleCards" :key="item.role" :value="item.role" class="role-card-option">
+                <a-radio-button v-for="item in loginRoleCards" :key="item.role" :value="item.role" class="role-card-option">
                   <div class="role-card-icon">
                     <component :is="roleIcon(item.role)" :size="18" />
                   </div>
@@ -166,7 +184,7 @@ const submitRegister = async () => {
           <div class="demo-account-list">
             <span>演示账号：</span>
             <button
-              v-for="account in demoAccounts"
+              v-for="account in demoAccountList"
               :key="account.account"
               type="button"
               @click="loginForm = { account: account.account, password: account.password, role: account.role }"
@@ -192,7 +210,7 @@ const submitRegister = async () => {
             </a-form-item>
             <a-form-item label="注册角色" required>
               <a-radio-group v-model:value="registerForm.role" class="role-card-group compact">
-                <a-radio-button v-for="item in roleCards" :key="item.role" :value="item.role" class="role-card-option">
+                <a-radio-button v-for="item in registerRoleCards" :key="item.role" :value="item.role" class="role-card-option">
                   <div class="role-card-icon">
                     <component :is="roleIcon(item.role)" :size="18" />
                   </div>

@@ -731,8 +731,7 @@ button {
 }
 
 .stats-page,
-.workbench-page,
-.routes-page {
+.workbench-page {
   max-width: 1200px;
   margin: 0 auto;
 }
@@ -885,8 +884,7 @@ button {
   margin-top: 14px;
 }
 
-.guide-layout,
-.routes-layout {
+.guide-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
@@ -1322,21 +1320,6 @@ button {
   .photo-wall-grid {
     max-height: 200px;
   }
-}
-
-.route-item {
-  padding: 14px;
-  border-radius: 0;
-  cursor: pointer;
-}
-
-.route-item:hover,
-.route-item.selected {
-  background: var(--nyc-light-green);
-}
-
-.route-actions {
-  margin-top: 18px;
 }
 
 .ant-btn {
@@ -1918,7 +1901,6 @@ button {
   }
 
   .guide-layout,
-  .routes-layout,
   .workbench-stats,
   .split-actions,
   .work-order-form-grid {
@@ -3184,6 +3166,16 @@ button {
   font-style: normal;
 }
 
+.mobile-route-tree-picks button.destination {
+  border-color: var(--nyc-green);
+  background: #f5fbef;
+}
+
+.mobile-route-tree-picks button.destination em {
+  color: var(--nyc-green-dark);
+  font-weight: 700;
+}
+
 .mobile-route-nav-summary {
   margin-bottom: 10px;
   display: grid;
@@ -3273,6 +3265,11 @@ button {
   box-shadow: inset 3px 0 0 #d79a2e;
 }
 
+.mobile-spot-card.destination {
+  border-color: var(--nyc-green);
+  box-shadow: inset 3px 0 0 var(--nyc-green);
+}
+
 .mobile-spot-card-main {
   width: 100%;
   padding: 10px;
@@ -3316,6 +3313,11 @@ button {
   line-height: 1.55;
 }
 
+.mobile-spot-card-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .mobile-spot-card-action {
   width: 100%;
   min-height: 38px;
@@ -3331,9 +3333,22 @@ button {
   font-weight: 700;
 }
 
+.mobile-spot-card-actions .mobile-spot-card-action {
+  justify-content: center;
+}
+
+.mobile-spot-card-actions .mobile-spot-card-action + .mobile-spot-card-action {
+  border-left: 1px solid #eeeeea;
+}
+
 .mobile-spot-card-action.selected {
   background: #fdf6e5;
   color: #a3680b;
+}
+
+.mobile-spot-card-action.destination.selected {
+  background: #eaf3e4;
+  color: var(--nyc-green-dark);
 }
 
 .mobile-spot-detail {

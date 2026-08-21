@@ -72,7 +72,7 @@ HotspotGrid 字段：
 | treeCount | number | 网格内树木数量 |
 | warningCount | number | 网格内健康预警树木数量 |
 | totalValueYuan | number | 网格内树木总生态价值（元） |
-| valuePerHa | number | 单位面积生态价值（元/公顷） |
+| valuePerTree | number | 网格内平均每棵树的生态价值（元/棵） |
 | level | number | 效益等级，1-5，5 为最高 |
 | topTreeIds | string[] | 单树生态价值最高的前 3 棵树标识 |
 

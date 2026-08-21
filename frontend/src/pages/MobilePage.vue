@@ -3,10 +3,11 @@ import { computed, inject, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Camera, CheckCircle2, ChevronDown, ClipboardList, Compass, Heart, Home, Leaf,
-  ListChecks, MapPinned, Navigation, Route as RouteIcon, Search, Send, UserRound, Wrench, X
+  ListChecks, MapPinned, Navigation, Route as RouteIcon, Search, Send, TreePine, UserRound, Wrench, X
 } from "lucide-vue-next";
 import { message } from "ant-design-vue";
 import ArcGISTreeMap from "../components/ArcGISTreeMap.vue";
+import MobileAddTreeSection from "../components/MobileAddTreeSection.vue";
 import CreateWorkOrderModal from "../components/CreateWorkOrderModal.vue";
 import MobileRoutesSection from "../components/MobileRoutesSection.vue";
 import {
@@ -52,12 +53,16 @@ const isInspectRole = computed(() => role.value === "maintenance" || role.value 
 const activeTab = computed(() => {
   const tab = route.params.tab || "map";
   if (role.value !== "visitor" && (tab === "routes" || tab === "guide")) return "map";
+  if (role.value === "visitor" && tab === "add-tree") return "map";
   return tab;
 });
 const tabItems = computed(() => {
   const items = [
     { key: "map", label: "地图", icon: MapPinned },
   ];
+  if (isInspectRole.value) {
+    items.push({ key: "add-tree", label: "添树", icon: TreePine });
+  }
   if (role.value === "visitor") {
     items.push({ key: "routes", label: "路线", icon: RouteIcon });
     items.push({ key: "guide", label: "导览", icon: Compass });
@@ -284,6 +289,9 @@ watch(
     if (currentRole !== "visitor" && (tab === "routes" || tab === "guide")) {
       router.replace("/mobile/map");
     }
+    if (currentRole === "visitor" && tab === "add-tree") {
+      router.replace("/mobile/map");
+    }
   }
 );
 
@@ -415,6 +423,18 @@ function startTreeGuide(tree = selectedTree.value) {
   };
   expandedSections.value.nearby = true;
   goTab("guide");
+}
+
+function goCheckIn(tree = selectedTree.value) {
+  if (!tree) return;
+  guideAnchorLocation.value = {
+    latitude: tree.latitude,
+    longitude: tree.longitude,
+    name: "当前树木附近",
+  };
+  expandedSections.value.nearby = true;
+  goTab("guide");
+  openViewTree(tree);
 }
 
 function openLeadForTree(tree = selectedTree.value) {
@@ -845,22 +865,7 @@ function submitReview(passed) {
           <button type="button" class="mobile-inspect-close" aria-label="关闭" @click="toggleInspectPanel"><X :size="18" /></button>
         </div>
 
-        <div class="mobile-inspect-coords">
-          <a-input
-            :value="inspectPosition.lat.toFixed(6)"
-            size="small"
-            @change="(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) { inspectPosition.lat = v; onInspectCoordChange(); } }"
-          >
-            <template #addonBefore>纬度</template>
-          </a-input>
-          <a-input
-            :value="inspectPosition.lng.toFixed(6)"
-            size="small"
-            @change="(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) { inspectPosition.lng = v; onInspectCoordChange(); } }"
-          >
-            <template #addonBefore>经度</template>
-          </a-input>
-        </div>
+        
 
         <p class="mobile-inspect-hint">
           点击地图选点或修改坐标，自动搜索半径内的树木 · 当前：{{ inspectPosition.lat.toFixed(6) }}, {{ inspectPosition.lng.toFixed(6) }}
@@ -1006,14 +1011,19 @@ function submitReview(passed) {
             保护等级：{{ selectedTree.protectionLevel || "古树名木" }}
           </p>
           <div class="mobile-action-row">
-            <a-button v-if="role === 'visitor'" @click="startTreeGuide(selectedTree)"><Navigation :size="15" />导览</a-button>
-            <a-button v-if="role === 'visitor'" type="primary" @click="checkInTree()"><Camera :size="15" />打卡</a-button>
+            <a-button v-if="role === 'visitor'" type="primary" @click="goCheckIn()">
+              <Camera :size="15" />去打卡
+            </a-button>
             <a-button v-if="role !== 'visitor'" type="primary" @click="openCreateOrder(selectedTree)">
               <ClipboardList :size="15" />工单
             </a-button>
           </div>
         </div>
       </div>
+    </section>
+
+    <section v-if="activeTab === 'add-tree' && isInspectRole" class="mobile-screen mobile-scroll-screen">
+      <MobileAddTreeSection />
     </section>
 
     <section v-if="activeTab === 'routes' && role === 'visitor'" class="mobile-screen mobile-routes-screen">

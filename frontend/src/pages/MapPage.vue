@@ -6,6 +6,7 @@ import ArcGISTreeMap from "../components/ArcGISTreeMap.vue";
 import FilterPanel from "../components/FilterPanel.vue";
 import StatsPanel from "../components/StatsPanel.vue";
 import { computeNextTreeCode, roleLabels } from "../api/mockApi";
+import { exportTreesAsShp } from "../api/shpExport";
 
 const app = inject("appState");
 
@@ -51,6 +52,16 @@ const onSpeciesChange = (val) => setSpeciesFilter(val);
 const onDbhRangeChange = (val) => setDbhRange(val);
 const onHealthChange = (val) => setHealthFilter(val);
 const onReset = () => resetMapFilters();
+
+// ---- 导出树木点位 SHP ----
+const handleExportShp = () => {
+  try {
+    exportTreesAsShp(trees.value);
+    message.success("已导出树木点位 SHP 数据");
+  } catch (error) {
+    message.error(error.message || "导出失败");
+  }
+};
 
 // ---- stats modal ----
 const showStatsModal = ref(false);
@@ -197,7 +208,8 @@ watch(() => addTreeForm.value.treeType, (val) => {
       <a-space wrap class="home-links">
         <a-button type="link" @click="openStatsModal">查看树木统计</a-button>
         <a-button v-if="role !== 'visitor'" type="link" @click="navigateTo('workbench')">进入工单处理</a-button>
-        <a-button v-if="role !== 'visitor'" type="link" @click="openAddTreeDrawer">添加树木</a-button>
+        <a-button v-if="role === 'admin'" type="link" @click="handleExportShp">导出树木shp数据</a-button>
+        <a-button v-if="role === 'inspector' || role === 'maintenance'" type="link" @click="openAddTreeDrawer">添加树木</a-button>
       </a-space>
     </section>
 
@@ -244,21 +256,10 @@ watch(() => addTreeForm.value.treeType, (val) => {
     </section>
 
  <!-- Split Actions -->
-    <section class="home-section split-actions">
-      <div>
-        <h2>Learn</h2>
-        <p>查看树种图鉴、季节提示和游客打卡入口。</p>
-        <a-button type="link" @click="navigateTo('guide')"><BookOpen :size="16" />导览学习</a-button>
-      </div>
-      <div>
-        <h2>Find Routes</h2>
-        <p>按拍照、秋季观赏和巡检任务查看推荐路线。</p>
-        <a-button type="link" @click="navigateTo('routes')"><CalendarDays :size="16" />路线推荐</a-button>
-      </div>
-    </section>
+
 
     <!-- 生态效益估算 -->
-    <section class="home-section eco-section">
+    <section v-if="role !== 'admin'" class="home-section eco-section">
       <h2>生态效益</h2>
       <div class="eco-stat-grid">
         <div class="eco-stat-card">
@@ -290,6 +291,7 @@ watch(() => addTreeForm.value.treeType, (val) => {
         <template v-if="role === 'visitor'">游客可查看树木详情、浏览导览路线并提交游客线索。</template>
         <template v-if="role === 'inspector'">巡检人员可查看游客线索、创建工单、更新健康状态并复核归档。</template>
         <template v-if="role === 'maintenance'">养护人员可创建工单、处置待处理任务并更新健康状态。</template>
+        <template v-if="role === 'admin'">管理员可查看全部工单与树木档案，并审核养护/巡检人员的注册申请。</template>
       </span>
     </section>
   </div>
