@@ -1,8 +1,9 @@
 <script setup>
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
-import { Leaf, MapPin, Search, Sparkles } from "lucide-vue-next";
+import { ChevronDown, ChevronLeft, ChevronRight, Leaf, MapPin, Search, Sparkles } from "lucide-vue-next";
 import EcoValueMap from "../components/EcoValueMap.vue";
+import EcoSpeciesSymbol from "../components/EcoSpeciesSymbol.vue";
 import FilterPanel from "../components/FilterPanel.vue";
 import {
   createKeyProtectionWorkOrder,
@@ -17,6 +18,7 @@ import {
   computeEcoGridAnalysis,
   sortTreesByEcoValueDesc,
 } from "../utils/ecoGrid";
+import { TREE_VALUE_SIZE_STOPS } from "../utils/ecoSymbols";
 
 const app = inject("appState");
 const { speciesColors, treeSearchOptions } = app;
@@ -38,6 +40,17 @@ const ecoMapRef = ref(null);
 const gridFeatures = ref([]);
 const gridTreeMap = ref(new Map());
 const loading = ref(false);
+const speciesLegendExpanded = ref(false);
+const ECO_RIGHT_PANEL_KEY = "xian-eco-right-panel-collapsed";
+const rightPanelCollapsed = ref(
+  window.localStorage.getItem(ECO_RIGHT_PANEL_KEY) === "true"
+);
+const treeSymbolScale = ref(100);
+const autoScaleTreeSymbols = ref(true);
+
+watch(rightPanelCollapsed, (collapsed) => {
+  window.localStorage.setItem(ECO_RIGHT_PANEL_KEY, String(collapsed));
+});
 
 const drawerOpen = ref(false);
 const selectedGrid = ref(null);
@@ -77,13 +90,15 @@ const visibleTrees = computed(() =>
 const benefitData = computed(() =>
   selectedTree.value
     ? mockTreeEcoBenefits(selectedTree.value)
-    : sumEcoBenefits(siteTrees.value)
+    : sumEcoBenefits(visibleTrees.value)
 );
 
 const benefitScopeLabel = computed(() =>
   selectedTree.value
     ? `${selectedTree.value.code} / ${selectedTree.value.species}`
-    : "全部树木"
+    : visibleTrees.value.length === siteTrees.value.length
+      ? "全部树木"
+      : `当前筛选 ${visibleTrees.value.length} 棵`
 );
 
 const summary = computed(() => {
@@ -95,6 +110,20 @@ const summary = computed(() => {
     topLevelCount: grids.filter((grid) => grid.properties.level === 5).length,
   };
 });
+
+const speciesLegend = computed(() => {
+  const counts = new Map();
+  siteTrees.value.forEach((tree) => {
+    counts.set(tree.species, (counts.get(tree.species) ?? 0) + 1);
+  });
+  return Array.from(counts, ([species, count]) => ({ species, count })).sort(
+    (a, b) => b.count - a.count || a.species.localeCompare(b.species, "zh-Hans-CN")
+  );
+});
+
+const displayedSpeciesLegend = computed(() =>
+  speciesLegendExpanded.value ? speciesLegend.value : speciesLegend.value.slice(0, 6)
+);
 
 const columns = [
   {
@@ -151,6 +180,12 @@ function resetFilters(trees = siteTrees.value) {
   speciesFilter.value = [];
   dbhRange.value = [0, maxDbh];
   healthFilter.value = "all";
+}
+
+function toggleSpeciesFilter(species) {
+  speciesFilter.value = speciesFilter.value.includes(species)
+    ? speciesFilter.value.filter((item) => item !== species)
+    : [...speciesFilter.value, species];
 }
 
 function recomputeGrids() {
@@ -296,11 +331,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="eco-value-page">
+  <div class="eco-value-page" :class="`health-tone-${healthFilter}`">
     <EcoValueMap
       ref="ecoMapRef"
       :trees="visibleTrees"
       :grids="gridFeatures"
+      :symbol-scale="treeSymbolScale"
+      :auto-scale="autoScaleTreeSymbols"
       @tree-select="onTreeSelect"
       @grid-select="openGridDrawer"
     />
@@ -342,7 +379,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="eco-benefit-total">
-          <span>年总生态价值</span>
+          <span>五项年生态价值合计</span>
           <strong>{{ formatYuan(benefitData.totalValueYuan) }}</strong>
         </div>
 
@@ -360,7 +397,7 @@ onBeforeUnmount(() => {
               </strong>
             </div>
             <div class="eco-benefit-value">
-              <span>生态价值</span>
+              <span>{{ metric.includedInTotal === false ? '单列价值（不计入合计）' : '计入合计' }}</span>
               <strong>{{ formatYuan(benefitData[`${metric.key}ValueYuan`]) }}</strong>
             </div>
           </div>
@@ -375,6 +412,8 @@ onBeforeUnmount(() => {
           :dbh-range="dbhRange"
           :health-filter="healthFilter"
           :species-colors="speciesColors"
+          eco-symbol-mode
+          interactive-legend
           @species-change="speciesFilter = $event"
           @dbh-range-change="dbhRange = $event"
           @health-change="healthFilter = $event"
@@ -383,10 +422,19 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <aside class="eco-summary-panel">
+    <aside class="eco-summary-panel" :class="{ 'is-collapsed': rightPanelCollapsed }">
       <div class="eco-panel-title">
         <Sparkles :size="18" />
         <span>生态效益热点与重点保护</span>
+        <button
+          type="button"
+          class="panel-collapse-button"
+          aria-label="收起右侧图例栏"
+          title="收起图例栏"
+          @click="rightPanelCollapsed = true"
+        >
+          <ChevronRight :size="18" />
+        </button>
       </div>
 
       <div class="eco-summary-grid">
@@ -411,7 +459,7 @@ onBeforeUnmount(() => {
       <div class="eco-legend">
         <div class="eco-legend-title">
           <Leaf :size="15" />
-          <span>生态价值等级</span>
+          <span>网格总价值等级</span>
         </div>
         <div class="eco-legend-list">
           <div
@@ -427,7 +475,94 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+
+      <div class="eco-legend eco-tree-legend">
+        <button
+          type="button"
+          class="eco-legend-toggle"
+          :aria-expanded="speciesLegendExpanded"
+          @click="speciesLegendExpanded = !speciesLegendExpanded"
+        >
+          <span class="eco-legend-title">
+            <Leaf :size="15" />
+            <span>树木点位图例</span>
+          </span>
+          <span class="eco-legend-toggle-copy">
+            {{ speciesLegendExpanded ? '收起' : `全部 ${speciesLegend.length} 种` }}
+            <ChevronDown :size="15" :class="{ open: speciesLegendExpanded }" />
+          </span>
+        </button>
+
+        <p class="eco-legend-note">颜色与形状表示树种，点击可同步筛选。</p>
+        <div class="eco-species-legend-list">
+          <button
+            v-for="item in displayedSpeciesLegend"
+            :key="item.species"
+            type="button"
+            class="eco-species-legend-item"
+            :class="{ active: speciesFilter.includes(item.species) }"
+            :aria-pressed="speciesFilter.includes(item.species)"
+            @click="toggleSpeciesFilter(item.species)"
+          >
+            <EcoSpeciesSymbol :species="item.species" :size="13" />
+            <span>{{ item.species }}</span>
+            <small>{{ item.count }}</small>
+          </button>
+        </div>
+
+        <div class="eco-size-legend">
+          <div class="eco-legend-title">点位大小 · 五项生态价值合计</div>
+          <div class="eco-size-legend-list">
+            <div v-for="stop in TREE_VALUE_SIZE_STOPS" :key="stop.key" class="eco-size-legend-item">
+              <span class="eco-size-marker-wrap">
+                <span
+                  class="eco-size-marker"
+                  :style="{ width: `${stop.size}px`, height: `${stop.size}px` }"
+                />
+              </span>
+              <span><strong>{{ stop.label }}</strong><small>{{ stop.range }}</small></span>
+            </div>
+          </div>
+
+          <div class="eco-symbol-controls">
+            <div class="eco-symbol-control-head">
+              <span>整体大小</span>
+              <strong>{{ treeSymbolScale }}%</strong>
+            </div>
+            <div class="eco-symbol-slider-row">
+              <span>−</span>
+              <a-slider v-model:value="treeSymbolScale" :min="70" :max="180" :step="10" />
+              <span>＋</span>
+            </div>
+            <div class="eco-symbol-auto-row">
+              <span>
+                <strong>自动随缩放调整</strong>
+                <small>缩小地图时自动增强点位可见性</small>
+              </span>
+              <a-switch v-model:checked="autoScaleTreeSymbols" size="small" />
+            </div>
+            <button
+              type="button"
+              class="eco-symbol-reset"
+              @click="treeSymbolScale = 100; autoScaleTreeSymbols = true"
+            >
+              恢复默认
+            </button>
+          </div>
+        </div>
+      </div>
     </aside>
+
+    <button
+      v-if="rightPanelCollapsed"
+      type="button"
+      class="right-panel-restore eco-panel-restore"
+      aria-label="展开右侧图例栏"
+      @click="rightPanelCollapsed = false"
+    >
+      <ChevronLeft :size="17" />
+      <span>图例</span>
+    </button>
 
     <a-drawer
       :open="drawerOpen"
@@ -487,6 +622,52 @@ onBeforeUnmount(() => {
   height: 100%;
   overflow: hidden;
   background: #e8f0f2;
+}
+
+.eco-value-page::after {
+  position: absolute;
+  z-index: 14;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  box-shadow: inset 0 0 0 rgba(0, 0, 0, 0);
+  transition: box-shadow 0.22s ease;
+}
+
+.eco-value-page.health-tone-healthy::after {
+  box-shadow:
+    inset 0 0 20px rgba(68, 135, 61, 0.5),
+    inset 0 0 58px rgba(68, 135, 61, 0.28),
+    inset 0 0 112px rgba(68, 135, 61, 0.16);
+}
+
+.eco-value-page.health-tone-warning::after {
+  box-shadow:
+    inset 0 0 20px rgba(190, 108, 0, 0.6),
+    inset 0 0 58px rgba(190, 108, 0, 0.36),
+    inset 0 0 112px rgba(190, 108, 0, 0.2);
+}
+
+.eco-value-page.health-tone-problem::after {
+  box-shadow:
+    inset 0 0 20px rgba(180, 55, 48, 0.51),
+    inset 0 0 58px rgba(180, 55, 48, 0.29),
+    inset 0 0 112px rgba(180, 55, 48, 0.17);
+}
+
+.health-tone-healthy .eco-filter-panel :deep(.ant-segmented-item-selected) {
+  color: #2e6f36;
+  background: #e8f4e4;
+}
+
+.health-tone-warning .eco-filter-panel :deep(.ant-segmented-item-selected) {
+  color: #754200;
+  background: #ffe7bd;
+}
+
+.health-tone-problem .eco-filter-panel :deep(.ant-segmented-item-selected) {
+  color: #8f302b;
+  background: #fde8e5;
 }
 
 .eco-loading-mask {
@@ -665,6 +846,17 @@ onBeforeUnmount(() => {
   border: 1px solid #d6e0e3;
   border-radius: 4px;
   box-shadow: 0 2px 14px rgba(24, 62, 72, 0.1);
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease;
+}
+
+.eco-summary-panel.is-collapsed {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(calc(100% + 32px));
+}
+
+.eco-panel-restore {
+  top: 16px;
 }
 
 .eco-panel-title {
@@ -748,6 +940,223 @@ onBeforeUnmount(() => {
   border-radius: 2px;
 }
 
+.eco-tree-legend {
+  padding-bottom: 2px;
+}
+
+.eco-legend-toggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: inherit;
+  cursor: pointer;
+}
+
+.eco-legend-toggle .eco-legend-title {
+  margin-bottom: 0;
+}
+
+.eco-legend-toggle-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #5d7078;
+  font-size: 11px;
+}
+
+.eco-legend-toggle-copy svg {
+  transition: transform 0.2s ease;
+}
+
+.eco-legend-toggle-copy svg.open {
+  transform: rotate(180deg);
+}
+
+.eco-legend-note {
+  margin: 9px 0;
+  color: #5d7078;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.eco-species-legend-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.eco-species-legend-item {
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 7px;
+  border: 1px solid #dce8eb;
+  border-radius: 3px;
+  background: #ffffff;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  color: #33474f;
+  cursor: pointer;
+  text-align: left;
+}
+
+.eco-species-legend-item:hover,
+.eco-species-legend-item.active {
+  color: var(--nyc-green-dark);
+  background: var(--nyc-light-green);
+  border-color: var(--nyc-green);
+}
+
+.eco-species-legend-item > span:not(.eco-species-symbol) {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eco-species-legend-item small {
+  color: #77878e;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.eco-size-legend {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e4ecef;
+}
+
+.eco-size-legend .eco-legend-title {
+  margin-bottom: 9px;
+}
+
+.eco-size-legend-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.eco-size-legend-item {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.eco-size-marker-wrap {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+}
+
+.eco-size-marker {
+  display: block;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #0e7c86;
+  box-shadow: 0 0 0 1px #78939c;
+}
+
+.eco-size-legend-item strong,
+.eco-size-legend-item small {
+  display: block;
+  line-height: 1.25;
+}
+
+.eco-size-legend-item strong {
+  color: #33474f;
+  font-size: 11px;
+}
+
+.eco-size-legend-item small {
+  color: #77878e;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.eco-symbol-controls {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e4ecef;
+}
+
+.eco-symbol-control-head,
+.eco-symbol-auto-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.eco-symbol-control-head {
+  color: #33474f;
+  font-size: 12px;
+}
+
+.eco-symbol-control-head strong {
+  color: var(--nyc-green-dark);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.eco-symbol-slider-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 6px;
+  color: #5d7078;
+}
+
+.eco-symbol-slider-row :deep(.ant-slider) {
+  margin: 11px 2px;
+}
+
+.eco-symbol-auto-row {
+  margin-top: 5px;
+}
+
+.eco-symbol-auto-row > span:first-child {
+  min-width: 0;
+}
+
+.eco-symbol-auto-row strong,
+.eco-symbol-auto-row small {
+  display: block;
+}
+
+.eco-symbol-auto-row strong {
+  color: #33474f;
+  font-size: 12px;
+}
+
+.eco-symbol-auto-row small {
+  margin-top: 2px;
+  color: #77878e;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.eco-symbol-reset {
+  margin-top: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--nyc-green-dark);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.eco-symbol-reset:hover {
+  text-decoration: underline;
+}
+
 .eco-drawer-meta {
   display: flex;
   flex-wrap: wrap;
@@ -821,6 +1230,17 @@ onBeforeUnmount(() => {
 
   .eco-summary-panel {
     margin-top: 0;
+  }
+
+  .eco-summary-panel.is-collapsed {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+
+  .eco-summary-panel .panel-collapse-button,
+  .eco-panel-restore {
+    display: none;
   }
 }
 </style>

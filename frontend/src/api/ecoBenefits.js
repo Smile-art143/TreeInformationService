@@ -1,11 +1,15 @@
 export const ECO_BENEFIT_METRICS = [
-  { key: "carbonStorage", label: "碳储量", unit: "kg C" },
+  { key: "carbonStorage", label: "碳储量", unit: "kg C", includedInTotal: false },
   { key: "carbonSequestration", label: "年固碳量", unit: "kg CO2/年" },
   { key: "oxygenProduction", label: "年产氧量", unit: "kg O2/年" },
   { key: "stormwaterIntercepted", label: "年截留雨水量", unit: "L/年" },
   { key: "airPollutionRemoved", label: "年净化空气污染物量", unit: "g/年" },
   { key: "energySaved", label: "年节能", unit: "kWh/年" },
 ];
+
+const TOTAL_VALUE_METRICS = ECO_BENEFIT_METRICS.filter(
+  (metric) => metric.includedInTotal !== false
+);
 
 function emptyBenefits() {
   const result = { totalValueYuan: 0 };
@@ -16,27 +20,64 @@ function emptyBenefits() {
   return result;
 }
 
+const BASE_DBH = 6.5;
+const BASELINE = {
+  carbonStorage: 18.6,
+  carbonStorageValueYuan: 93.0,
+  carbonSequestration: 4.68,
+  carbonSequestrationValueYuan: 0.28,
+  oxygenProduction: 13.65,
+  oxygenProductionValueYuan: 6.83,
+  stormwaterIntercepted: 120.25,
+  stormwaterInterceptedValueYuan: 0.48,
+  airPollutionRemoved: 58.5,
+  airPollutionRemovedValueYuan: 0.44,
+  energySaved: 9.75,
+  energySavedValueYuan: 1.17,
+};
+
+function stableSpeciesFactor(species = "") {
+  const hash = Array.from(species).reduce(
+    (result, character) => (result * 31 + character.codePointAt(0)) % 997,
+    17
+  );
+  return 0.92 + (hash % 17) / 100;
+}
+
+function roundMetric(value) {
+  return Number(value.toFixed(2));
+}
+
 // 替换点：生态效益接口就绪后，将本函数替换为按 treeId 查询真实数据。
-// 当前仅 DX-221 提供 mock 数据，用于验证点击树点后面板联动。
+// 当前 mock 以 DX-221 的既有样例为基准，按胸径等属性生成稳定的全树演示值。
 export function mockTreeEcoBenefits(tree) {
-  if (!tree || (tree.id !== "DX-221" && tree.code !== "DX-221")) {
-    return emptyBenefits();
-  }
+  const dbh = Number(tree?.dbh);
+  if (!tree || !Number.isFinite(dbh) || dbh <= 0) return emptyBenefits();
 
-  const carbonStorage = 18.6;
-  const carbonStorageValueYuan = 93.0;
-  const carbonSequestration = 4.68;
-  const carbonSequestrationValueYuan = 0.28;
-  const oxygenProduction = 13.65;
-  const oxygenProductionValueYuan = 6.83;
-  const stormwaterIntercepted = 120.25;
-  const stormwaterInterceptedValueYuan = 0.48;
-  const airPollutionRemoved = 58.5;
-  const airPollutionRemovedValueYuan = 0.44;
-  const energySaved = 9.75;
-  const energySavedValueYuan = 1.17;
+  const isBaselineTree = tree.id === "DX-221" || tree.code === "DX-221";
+  const healthFactor = tree.healthStatus === "problem"
+    ? 0.82
+    : tree.healthStatus === "warning" ? 0.92 : 1;
+  const ancientFactor = tree.isAncient || tree.treeType === "古树" ? 1.18 : 1;
+  const speciesFactor = isBaselineTree ? 1 : stableSpeciesFactor(tree.species);
+  const scale = isBaselineTree
+    ? 1
+    : Math.pow(dbh / BASE_DBH, 1.35) * healthFactor * ancientFactor * speciesFactor;
 
-  return {
+  const carbonStorage = roundMetric(BASELINE.carbonStorage * scale);
+  const carbonStorageValueYuan = roundMetric(BASELINE.carbonStorageValueYuan * scale);
+  const carbonSequestration = roundMetric(BASELINE.carbonSequestration * scale);
+  const carbonSequestrationValueYuan = roundMetric(BASELINE.carbonSequestrationValueYuan * scale);
+  const oxygenProduction = roundMetric(BASELINE.oxygenProduction * scale);
+  const oxygenProductionValueYuan = roundMetric(BASELINE.oxygenProductionValueYuan * scale);
+  const stormwaterIntercepted = roundMetric(BASELINE.stormwaterIntercepted * scale);
+  const stormwaterInterceptedValueYuan = roundMetric(BASELINE.stormwaterInterceptedValueYuan * scale);
+  const airPollutionRemoved = roundMetric(BASELINE.airPollutionRemoved * scale);
+  const airPollutionRemovedValueYuan = roundMetric(BASELINE.airPollutionRemovedValueYuan * scale);
+  const energySaved = roundMetric(BASELINE.energySaved * scale);
+  const energySavedValueYuan = roundMetric(BASELINE.energySavedValueYuan * scale);
+
+  const benefits = {
     carbonStorage,
     carbonStorageValueYuan,
     carbonSequestration,
@@ -49,17 +90,16 @@ export function mockTreeEcoBenefits(tree) {
     airPollutionRemovedValueYuan,
     energySaved,
     energySavedValueYuan,
-    totalValueYuan: Number(
-      (
-        carbonStorageValueYuan +
-        carbonSequestrationValueYuan +
-        oxygenProductionValueYuan +
-        stormwaterInterceptedValueYuan +
-        airPollutionRemovedValueYuan +
-        energySavedValueYuan
-      ).toFixed(2)
-    ),
   };
+
+  // 碳储量的货币价值单列展示，不参与单树生态价值合计。
+  benefits.totalValueYuan = roundMetric(
+    TOTAL_VALUE_METRICS.reduce(
+      (total, metric) => total + benefits[`${metric.key}ValueYuan`],
+      0
+    )
+  );
+  return benefits;
 }
 
 export function sumEcoBenefits(trees) {

@@ -20,6 +20,7 @@ const props = defineProps({
   highlightedTreeIds: { type: Array, default: () => [] },
   photoSpots: { type: Array, default: () => [] },
   selectedPhotoSpotIds: { type: Array, default: () => [] },
+  compact: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["treeSelect", "mapClick", "photoSpotSelect"]);
@@ -122,13 +123,15 @@ function renderTrees() {
   const graphics = props.trees.map((tree) => {
     const isSelected = props.selectedTree?.id === tree.id;
     const isHighlighted = props.highlightedTreeIds.includes(tree.id);
+    const baseSize = getDbhSize(tree.dbh);
+    const markerSize = props.compact ? Math.max(5, Math.round(baseSize * 0.68)) : baseSize;
     const symbol = new SimpleMarkerSymbol({
       style: "circle",
       color: props.speciesColors[tree.species] ?? "#4B7F52",
-      size: getDbhSize(tree.dbh) + (isSelected ? 5 : 0) + (isHighlighted ? 7 : 0),
+      size: markerSize + (isSelected ? 7 : 0) + (isHighlighted ? (props.compact ? 1 : 4) : 0),
       outline: {
-        color: isSelected ? "#17251A" : isHighlighted ? "#F2B134" : "#ffffff",
-        width: isSelected || isHighlighted ? 2.5 : 1,
+        color: isSelected ? "#F2B134" : isHighlighted ? "#17251A" : "#ffffff",
+        width: isSelected ? 3 : isHighlighted ? (props.compact ? 1.5 : 2) : 1,
       },
     });
 
@@ -158,7 +161,7 @@ function renderPhotoSpots() {
   const graphics = props.photoSpots.flatMap((spot) => {
     const isSelected = props.selectedPhotoSpotIds.includes(spot.id);
     const color = isSelected ? [242, 177, 52, 1] : [230, 106, 44, 0.95];
-    const size = isSelected ? 20 : 16;
+    const size = props.compact ? (isSelected ? 13 : 10) : (isSelected ? 20 : 16);
     return [
       new Graphic({
         geometry: new Point({
@@ -169,7 +172,7 @@ function renderPhotoSpots() {
           style: "diamond",
           color,
           size,
-          outline: { color: "#ffffff", width: isSelected ? 3 : 2 },
+          outline: { color: "#ffffff", width: props.compact ? 1.5 : (isSelected ? 3 : 2) },
         }),
         attributes: {
           photoSpotId: spot.id,
@@ -185,7 +188,7 @@ function renderPhotoSpots() {
         symbol: new SimpleMarkerSymbol({
           style: "circle",
           color: [255, 255, 255, 1],
-          size: isSelected ? 7 : 5,
+          size: props.compact ? (isSelected ? 4 : 3) : (isSelected ? 7 : 5),
         }),
         attributes: {
           photoSpotId: spot.id,
@@ -201,14 +204,14 @@ function renderPhotoSpots() {
 
 // Update graphics when trees/filters change
 watch(
-  () => [props.trees, props.selectedTree, props.speciesColors, props.highlightedTreeIds],
+  () => [props.trees, props.selectedTree, props.speciesColors, props.highlightedTreeIds, props.compact],
   renderTrees,
   { deep: true }
 );
 
 // Update photo spot markers
 watch(
-  () => [props.photoSpots, props.selectedPhotoSpotIds],
+  () => [props.photoSpots, props.selectedPhotoSpotIds, props.compact],
   renderPhotoSpots,
   { deep: true }
 );
@@ -260,6 +263,19 @@ defineExpose({
   showLocationMarker(lat, lng) {
     const layer = overlayLayerRef.value;
     if (!layer) return;
+    if (props.compact) {
+      layer.add(new Graphic({
+        geometry: new Point({ longitude: lng, latitude: lat }),
+        symbol: new SimpleMarkerSymbol({
+          style: "circle",
+          color: [80, 128, 44, 1],
+          size: 11,
+          outline: { color: [255, 255, 255, 1], width: 2 },
+        }),
+        attributes: { type: "location-marker" },
+      }));
+      return;
+    }
     // White outer ring with blue border
     layer.add(new Graphic({
       geometry: new Point({ longitude: lng, latitude: lat }),
@@ -346,6 +362,41 @@ defineExpose({
   showTargetMarker(lat, lng, statusType, dbh) {
     const layer = overlayLayerRef.value;
     if (!layer) return;
+    if (props.compact) {
+      const isDestination = statusType === "destination";
+      const isWaypoint = statusType === "waypoint" || statusType === "picked-waypoint";
+      const isWorkOrder = statusType === "processing" || statusType === "reviewing";
+      const color = isDestination
+        ? [143, 31, 36, 1]
+        : isWaypoint
+          ? [80, 128, 44, 0.92]
+          : statusType === "processing"
+            ? [214, 98, 38, 1]
+            : [113, 61, 143, 1];
+      if (isWorkOrder) {
+        layer.add(new Graphic({
+          geometry: new Point({ longitude: lng, latitude: lat }),
+          symbol: new SimpleMarkerSymbol({
+            style: "circle",
+            color: [242, 177, 52, 0.2],
+            size: 23,
+            outline: { color: [242, 177, 52, 0.95], width: 2 },
+          }),
+          attributes: { type: "target-marker-halo", statusType },
+        }));
+      }
+      layer.add(new Graphic({
+        geometry: new Point({ longitude: lng, latitude: lat }),
+        symbol: new SimpleMarkerSymbol({
+          style: isDestination ? "diamond" : "circle",
+          color,
+          size: isWorkOrder ? 14 : isDestination ? 12 : 6,
+          outline: { color: [255, 255, 255, 1], width: isWaypoint ? 1 : 2 },
+        }),
+        attributes: { type: "target-marker", statusType },
+      }));
+      return;
+    }
     const isProcessing = statusType === "processing";
     const color = isProcessing ? [255, 100, 0, 1] : [140, 30, 255, 1];
     const size = (dbh ? getDbhSize(dbh) : 14) + 16;
@@ -381,7 +432,7 @@ defineExpose({
       }),
       symbol: new SimpleLineSymbol({
         color: [22, 119, 255, 0.8],
-        width: 3,
+        width: props.compact ? 2 : 3,
         style: "dash",
       }),
       attributes: { type: "navigation-line" },
@@ -397,7 +448,7 @@ defineExpose({
       }),
       symbol: new SimpleLineSymbol({
         color: [22, 119, 255, 0.9],
-        width: 5,
+        width: props.compact ? 3 : 5,
         style: "solid",
         cap: "round",
         join: "round",

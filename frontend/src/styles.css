@@ -606,6 +606,13 @@ button {
   overflow-y: auto;
   background: rgba(255, 255, 255, 0.97);
   border: 1px solid var(--nyc-border);
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease;
+}
+
+.map-tool-panel.is-collapsed {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(calc(100% + 56px));
 }
 
 .tool-panel-title,
@@ -621,6 +628,65 @@ button {
 .tool-panel-title {
   margin-bottom: 12px;
   color: var(--nyc-black);
+}
+
+.panel-collapse-button {
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid var(--nyc-border);
+  border-radius: 3px;
+  background: #ffffff;
+  color: var(--nyc-gray);
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.panel-collapse-button:hover {
+  color: var(--nyc-green-dark);
+  background: var(--nyc-light-green);
+  border-color: var(--nyc-green);
+}
+
+.right-panel-restore {
+  position: absolute;
+  right: max(0px, calc(100% - 100vw));
+  z-index: 18;
+  width: 36px;
+  min-height: 92px;
+  padding: 9px 6px;
+  border: 1px solid var(--nyc-border);
+  border-right: 0;
+  border-radius: 3px 0 0 3px;
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--nyc-green-dark);
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  box-shadow: -2px 0 0 rgba(22, 22, 29, 0.06);
+}
+
+.right-panel-restore span {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  line-height: 1.2;
+  writing-mode: vertical-rl;
+}
+
+.right-panel-restore:hover {
+  background: var(--nyc-light-green);
+  border-color: var(--nyc-green);
+}
+
+.map-panel-restore {
+  top: 56px;
 }
 
 .tree-search {
@@ -640,6 +706,10 @@ button {
 
 .filter-panel .panel-title {
   margin-bottom: 12px;
+}
+
+.filter-panel .ant-select {
+  width: 100%;
 }
 
 .full-width {
@@ -663,12 +733,34 @@ button {
   border-radius: 3px;
 }
 
+.legend-tag.is-interactive {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.legend-tag.is-interactive:hover,
+.legend-tag.is-interactive.is-selected {
+  color: var(--nyc-green-dark);
+  background: var(--nyc-light-green);
+  border-color: var(--nyc-green);
+}
+
 .legend-dot {
   width: 9px;
   height: 9px;
   display: inline-block;
   margin-right: 6px;
   border-radius: 50%;
+}
+
+.eco-filter-symbol-note {
+  margin: -4px 0 0;
+  color: var(--nyc-gray);
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .map-key {
@@ -1346,12 +1438,8 @@ button {
   grid-template-columns: minmax(340px, 0.95fr) minmax(420px, 1.05fr);
   align-items: center;
   gap: 34px;
-  padding: clamp(24px, 5vw, 64px);
-  background:
-    linear-gradient(rgba(80, 128, 44, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(80, 128, 44, 0.05) 1px, transparent 1px),
-    #ffffff;
-  background-size: 42px 42px;
+  padding: 48px;
+  background: #ffffff;
 }
 
 .login-hero {
@@ -1381,7 +1469,7 @@ button {
 .login-hero h1 {
   margin: 0;
   color: var(--nyc-black);
-  font-size: clamp(36px, 5.5vw, 64px);
+  font-size: 56px;
   line-height: 1.04;
 }
 
@@ -1427,6 +1515,21 @@ button {
   justify-self: end;
   background: #ffffff;
   box-shadow: none;
+}
+
+.desktop-admin-login .login-card {
+  max-width: 520px;
+  border: 1px solid var(--nyc-border);
+  box-shadow: none;
+}
+
+.desktop-admin-login .login-card .ant-card-body {
+  padding: 36px;
+}
+
+.desktop-admin-login .demo-account-list button {
+  min-height: 34px;
+  padding-inline: 12px;
 }
 
 .login-card-heading h2 {
@@ -1890,6 +1993,17 @@ button {
     order: 1;
     border-left: 0;
     border-right: 0;
+  }
+
+  .map-tool-panel.is-collapsed {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+
+  .map-tool-panel .panel-collapse-button,
+  .map-panel-restore {
+    display: none;
   }
 
   .map-key {

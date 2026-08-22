@@ -24,7 +24,7 @@ const route = useRoute();
 
 // ---- state (was useState) ----
 const isAuthenticated = ref(false);
-const role = ref("inspector");
+const role = ref("admin");
 const organizationName = ref("大兴善寺");
 const currentUser = ref(null);
 const page = ref("map");
@@ -174,6 +174,15 @@ watch(() => route.path, (path) => {
   const pageName = path.replace("/", "") || "map";
   if (["map", "eco", "workbench", "guide", "review"].includes(pageName)) {
     page.value = pageName;
+  }
+});
+
+watch([isMobileRoute, role, isAuthenticated], ([mobileRoute, currentRole, authenticated]) => {
+  if (!authenticated) return;
+  if (mobileRoute && currentRole === "admin") {
+    router.replace("/map");
+  } else if (!mobileRoute && currentRole !== "admin") {
+    router.replace("/mobile/map");
   }
 });
 
@@ -389,7 +398,7 @@ const handleLogout = async () => {
   currentUser.value = null;
   currentUserName.value = "游客";
   isAuthenticated.value = false;
-  role.value = "inspector";
+  role.value = shouldStayMobile ? "inspector" : "admin";
   organizationName.value = "大兴善寺";
   selectedTree.value = null;
   selectedOrder.value = null;
@@ -530,7 +539,7 @@ provide("appState", {
           @change="navigateTo"
         />
         <div class="role-switcher">
-          <span class="role-label">{{ isEnglish ? 'Role' : '当前身份' }}</span>
+          <span class="role-label">{{ role === 'admin' ? (isEnglish ? 'Admin Console' : '管理后台') : (isEnglish ? 'Role' : '当前身份') }}</span>
           <a-segmented
             v-if="role !== 'admin'"
             :value="role"

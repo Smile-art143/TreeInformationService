@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   Building2, ClipboardList, LockKeyhole, MapPinned, ShieldCheck, Trees, UserRound
 } from "lucide-vue-next";
@@ -17,21 +17,18 @@ const emit = defineEmits(["enter"]);
 const activeTab = ref("login");
 const isSubmitting = ref(false);
 
-// 登录角色：包含预置管理员角色；注册角色：管理员不开放注册
-// 移动端不提供管理员入口，仅保留游客/巡检/养护三类身份。
+// Web 端仅开放管理员；移动端仅保留游客/巡检/养护三类身份。
 const loginRoleCards = computed(() => {
-  const cards = [
+  const mobileCards = [
     { role: "visitor", title: "游客" },
     { role: "inspector", title: "巡检人员" },
     { role: "maintenance", title: "养护人员" },
-    { role: "admin", title: "管理员" },
   ];
-  return props.mobile ? cards.filter((item) => item.role !== "admin") : cards;
+  return props.mobile ? mobileCards : [{ role: "admin", title: "管理员" }];
 });
 
-// 移动端同样隐藏管理员演示账号，与登录角色卡片保持一致。
 const demoAccountList = computed(() =>
-  props.mobile ? demoAccounts.filter((item) => item.role !== "admin") : demoAccounts
+  demoAccounts.filter((item) => props.mobile ? item.role !== "admin" : item.role === "admin")
 );
 
 const registerRoleCards = [
@@ -43,10 +40,16 @@ const registerRoleCards = [
 const orgOptions = organizations.filter((item) => item.value !== "public");
 
 const loginForm = ref({
-  account: "inspector",
-  password: "123456",
-  role: props.initialRole,
+  account: props.mobile ? "inspector" : "admin",
+  password: props.mobile ? "123456" : "admin123",
+  role: props.mobile && props.initialRole !== "admin" ? props.initialRole : props.mobile ? "inspector" : "admin",
 });
+
+watch(() => props.mobile, (mobile) => {
+  loginForm.value = mobile
+    ? { account: "inspector", password: "123456", role: "inspector" }
+    : { account: "admin", password: "admin123", role: "admin" };
+}, { immediate: true });
 
 const registerForm = ref({
   account: "",
@@ -70,8 +73,13 @@ const roleIcon = (role) => {
 };
 
 const submitLogin = async () => {
+  if (isSubmitting.value) return;
   if (!loginForm.value.account || !loginForm.value.password || !loginForm.value.role) {
     message.error("请填写账号、密码并选择角色");
+    return;
+  }
+  if (!loginRoleCards.value.some((item) => item.role === loginForm.value.role)) {
+    message.error(props.mobile ? "当前入口仅支持游客、巡检人员和养护人员" : "管理后台仅支持管理员登录");
     return;
   }
 
@@ -87,6 +95,7 @@ const submitLogin = async () => {
 };
 
 const submitRegister = async () => {
+  if (isSubmitting.value) return;
   if (!registerForm.value.account || !registerForm.value.username || !registerForm.value.password || !registerForm.value.role) {
     message.error("请填写账号、用户名/姓名、密码并选择角色");
     return;
@@ -117,7 +126,7 @@ const submitRegister = async () => {
       organizationId: undefined,
     };
     activeTab.value = "login";
-    message.success(user.approvalStatus === "pending" ? "账号已提交，内部角色需审核；当前 mock 环境可继续登录演示。" : "注册成功，请登录");
+    message.success(user.approvalStatus === "pending" ? "账号已提交，内部角色需审核；审核期间可继续查看平台功能。" : "注册成功，请登录");
   } catch (error) {
     message.error(error.message || "注册失败");
   } finally {
@@ -127,7 +136,7 @@ const submitRegister = async () => {
 </script>
 
 <template>
-  <main class="login-page" :class="{ 'mobile-login-page': mobile }">
+  <main class="login-page" :class="{ 'mobile-login-page': mobile, 'desktop-admin-login': !mobile }">
     <section class="login-hero">
       <div class="login-brand">
         <div class="brand-mark login-brand-mark">
@@ -146,24 +155,24 @@ const submitRegister = async () => {
 
     <a-card class="login-card" :bordered="false">
       <div class="login-card-heading">
-        <a-tag color="green">账号入口</a-tag>
-        <h2>登录或注册</h2>
+        <a-tag color="green">{{ mobile ? '公众与现场服务' : '管理后台' }}</a-tag>
+        <h2>{{ mobile ? '登录或注册' : '管理员登录' }}</h2>
       </div>
 
       <a-tabs v-model:active-key="activeTab">
         <a-tab-pane key="login" tab="登录">
           <a-form layout="vertical" @finish="submitLogin">
             <a-form-item label="账号" required>
-              <a-input v-model:value="loginForm.account" placeholder="例如 inspector / maintenance / visitor">
+              <a-input v-model:value="loginForm.account" :placeholder="mobile ? '例如 inspector / maintenance / visitor' : '管理员账号 admin'">
                 <template #prefix><UserRound :size="15" /></template>
               </a-input>
             </a-form-item>
             <a-form-item label="密码" required>
-              <a-input-password v-model:value="loginForm.password" placeholder="演示密码 123456">
+              <a-input-password v-model:value="loginForm.password" :placeholder="mobile ? '默认密码 123456' : '管理员密码 admin123'">
                 <template #prefix><LockKeyhole :size="15" /></template>
               </a-input-password>
             </a-form-item>
-            <a-form-item label="登录角色" required>
+            <a-form-item v-if="mobile" label="登录角色" required>
               <a-radio-group v-model:value="loginForm.role" class="role-card-group compact">
                 <a-radio-button v-for="item in loginRoleCards" :key="item.role" :value="item.role" class="role-card-option">
                   <div class="role-card-icon">
@@ -175,14 +184,14 @@ const submitRegister = async () => {
                 </a-radio-button>
               </a-radio-group>
             </a-form-item>
-            <a-alert type="info" show-icon :message="`当前将以“${roleLabels[loginForm.role]}”身份进入`" />
+            <a-alert type="info" show-icon :message="mobile ? `当前将以“${roleLabels[loginForm.role]}”身份进入` : '管理后台仅提供城市树木总览、生态价值和审核功能'" />
             <a-button class="submit-report" type="primary" size="large" html-type="submit" :loading="isSubmitting" @click="submitLogin">
               登录
             </a-button>
           </a-form>
 
           <div class="demo-account-list">
-            <span>演示账号：</span>
+            <span>快速登录：</span>
             <button
               v-for="account in demoAccountList"
               :key="account.account"
@@ -194,7 +203,7 @@ const submitRegister = async () => {
           </div>
         </a-tab-pane>
 
-        <a-tab-pane key="register" tab="注册">
+        <a-tab-pane v-if="mobile" key="register" tab="注册">
           <a-form layout="vertical" @finish="submitRegister">
             <a-form-item label="账号" required>
               <a-input v-model:value="registerForm.account" placeholder="输入手机号或登录账号" />
@@ -229,7 +238,7 @@ const submitRegister = async () => {
               type="warning"
               show-icon
               message="内部角色注册后需审核"
-              description="当前为前端 mock 演示，注册后会标注待审核，但仍可使用该账号登录演示。"
+              description="注册后会标注待审核；审核期间仍可使用该账号查看平台功能。"
             />
             <a-button class="submit-report" type="primary" size="large" html-type="submit" :loading="isSubmitting" @click="submitRegister">
               提交注册

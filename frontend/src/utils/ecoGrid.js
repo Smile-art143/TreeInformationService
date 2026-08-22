@@ -83,11 +83,21 @@ export function computeEcoGridAnalysis(
     };
   }
 
-  const bounds = bbox(
+  const rawBounds = bbox(
     featureCollection(
       locatedTrees.map((tree) => point([tree.longitude, tree.latitude]))
     )
   );
+  const centerLatitude = (rawBounds[1] + rawBounds[3]) / 2;
+  const latitudePadding = cellSizeMeters / 111320;
+  const longitudePadding = cellSizeMeters /
+    (111320 * Math.max(0.2, Math.cos((centerLatitude * Math.PI) / 180)));
+  const bounds = [
+    rawBounds[0] - longitudePadding,
+    rawBounds[1] - latitudePadding,
+    rawBounds[2] + longitudePadding,
+    rawBounds[3] + latitudePadding,
+  ];
   const cellFeatures = squareGrid(bounds, cellSizeMeters, {
     units: "meters",
   }).features;

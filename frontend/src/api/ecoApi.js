@@ -1,14 +1,12 @@
 import rawTrees from "../data/trees.json";
+import { mockTreeEcoBenefits } from "./ecoBenefits";
 
 const API_DELAY_MS = 120;
 
 // 为单棵树补充 mock 生态价值字段，结构对齐后端约定：
 // eco: { annualValueYuan: number | null }
-export function mockEcoValue(tree, { maxValue = 5000, nullRatio = 0.1 } = {}) {
-  const annualValueYuan =
-    Math.random() < nullRatio
-      ? null
-      : Number((Math.random() * maxValue).toFixed(2));
+export function mockEcoValue(tree) {
+  const annualValueYuan = mockTreeEcoBenefits(tree).totalValueYuan;
 
   return {
     ...tree,

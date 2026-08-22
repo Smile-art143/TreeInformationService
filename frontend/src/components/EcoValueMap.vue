@@ -11,10 +11,13 @@ import SimpleMarkerSymbol from "@arcgis/core/symbols/SimpleMarkerSymbol";
 import SimpleFillSymbol from "@arcgis/core/symbols/SimpleFillSymbol";
 import SimpleLineSymbol from "@arcgis/core/symbols/SimpleLineSymbol";
 import { createTiandituBaseLayers } from "../map/tiandituLayers";
+import { speciesSymbolConfig, treeMarkerSize } from "../utils/ecoSymbols";
 
 const props = defineProps({
   trees: { type: Array, default: () => [] },
   grids: { type: Array, default: () => [] },
+  symbolScale: { type: Number, default: 100 },
+  autoScale: { type: Boolean, default: true },
 });
 
 const emit = defineEmits(["gridSelect", "treeSelect"]);
@@ -23,23 +26,7 @@ const containerRef = ref(null);
 const viewRef = shallowRef(null);
 const treeLayerRef = shallowRef(null);
 const gridLayerRef = shallowRef(null);
-
-const SPECIES_COLORS = [
-  "#0E7C86",
-  "#6A4C9C",
-  "#C2455D",
-  "#E07B2E",
-  "#2E8B74",
-  "#4678A8",
-  "#B35C9F",
-  "#7B9E2B",
-  "#C77E1A",
-  "#3E8FBF",
-  "#A9508D",
-  "#4B9B82",
-];
-
-const SPECIES_STYLES = ["circle", "square", "triangle", "diamond", "cross", "x"];
+const currentZoom = ref(17);
 
 const GRID_COLORS = [
   "#FBF3D0",
@@ -49,34 +36,19 @@ const GRID_COLORS = [
   "#8E2C2C",
 ];
 
-function hashString(value) {
-  let hash = 0;
-  for (const char of value) {
-    hash = ((hash << 5) - hash + char.codePointAt(0)) | 0;
-  }
-  return Math.abs(hash);
+function zoomCompensation() {
+  if (!props.autoScale) return 1;
+  return Math.max(0.82, Math.min(1.65, 1 + (17 - currentZoom.value) * 0.18));
 }
 
-function speciesSymbolConfig(species) {
-  const comboCount = SPECIES_COLORS.length * SPECIES_STYLES.length;
-  const index = hashString(species) % comboCount;
-  return {
-    color: SPECIES_COLORS[Math.floor(index / SPECIES_STYLES.length) % SPECIES_COLORS.length],
-    style: SPECIES_STYLES[index % SPECIES_STYLES.length],
-  };
-}
-
-function treeMarkerSize(annualValueYuan, maxAnnualValue) {
-  const value = typeof annualValueYuan === "number" ? annualValueYuan : 0;
-  return Math.max(6, Math.min(22, 6 + (value / Math.max(maxAnnualValue, 1)) * 16));
-}
-
-function treeSymbol(tree, maxAnnualValue) {
+function treeSymbol(tree) {
   const config = speciesSymbolConfig(tree.species);
+  const scaledSize = treeMarkerSize(tree.eco?.annualValueYuan) *
+    (props.symbolScale / 100) * zoomCompensation();
   return new SimpleMarkerSymbol({
     style: config.style,
     color: config.color,
-    size: treeMarkerSize(tree.eco?.annualValueYuan, maxAnnualValue),
+    size: Math.max(6, Math.min(36, scaledSize)),
     outline: {
       color: "#ffffff",
       width: 1,
@@ -99,17 +71,13 @@ function renderTrees() {
   if (!layer) return;
 
   layer.removeAll();
-  const maxAnnualValue = Math.max(
-    ...props.trees.map((tree) => tree.eco?.annualValueYuan ?? 0),
-    1
-  );
   const graphics = props.trees.map((tree) =>
     new Graphic({
       geometry: new Point({
         longitude: tree.longitude,
         latitude: tree.latitude,
       }),
-      symbol: treeSymbol(tree, maxAnnualValue),
+      symbol: treeSymbol(tree),
       attributes: {
         treeId: tree.id,
         species: tree.species,
@@ -212,6 +180,12 @@ onMounted(() => {
   renderGrids();
   fitToGrids();
 
+  const stationaryHandle = view.watch("stationary", (stationary) => {
+    if (!stationary) return;
+    currentZoom.value = view.zoom;
+    if (props.autoScale) renderTrees();
+  });
+
   const clickHandle = view.on("click", async (event) => {
     const response = await view.hitTest(event);
     const treeHit = response.results.find(
@@ -236,6 +210,7 @@ onMounted(() => {
 
   onUnmounted(() => {
     clickHandle.remove();
+    stationaryHandle.remove();
     view.destroy();
     viewRef.value = null;
     treeLayerRef.value = null;
@@ -243,7 +218,11 @@ onMounted(() => {
   });
 });
 
-watch(() => props.trees, renderTrees, { deep: false });
+watch(
+  [() => props.trees, () => props.symbolScale, () => props.autoScale],
+  renderTrees,
+  { deep: false }
+);
 watch(
   () => props.grids,
   () => {

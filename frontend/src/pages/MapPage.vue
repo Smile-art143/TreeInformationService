@@ -1,7 +1,7 @@
 <script setup>
 import { computed, inject, ref, watch } from "vue";
 import { message } from "ant-design-vue";
-import { Leaf, BookOpen, CalendarDays, Users, Search, X } from "lucide-vue-next";
+import { ChevronLeft, ChevronRight, Leaf, BookOpen, CalendarDays, Users, Search, X } from "lucide-vue-next";
 import ArcGISTreeMap from "../components/ArcGISTreeMap.vue";
 import FilterPanel from "../components/FilterPanel.vue";
 import StatsPanel from "../components/StatsPanel.vue";
@@ -65,6 +65,14 @@ const handleExportShp = () => {
 
 // ---- stats modal ----
 const showStatsModal = ref(false);
+const MAP_RIGHT_PANEL_KEY = "xian-map-right-panel-collapsed";
+const rightPanelCollapsed = ref(
+  window.localStorage.getItem(MAP_RIGHT_PANEL_KEY) === "true"
+);
+
+watch(rightPanelCollapsed, (collapsed) => {
+  window.localStorage.setItem(MAP_RIGHT_PANEL_KEY, String(collapsed));
+});
 
 const openStatsModal = () => {
   showStatsModal.value = true;
@@ -285,22 +293,30 @@ watch(() => addTreeForm.value.treeType, (val) => {
    
 
     <!-- Role Note -->
-    <section class="home-section role-note">
+    <section v-if="role !== 'admin'" class="home-section role-note">
       <Users :size="18" />
       <span>
         <template v-if="role === 'visitor'">游客可查看树木详情、浏览导览路线并提交游客线索。</template>
         <template v-if="role === 'inspector'">巡检人员可查看游客线索、创建工单、更新健康状态并复核归档。</template>
         <template v-if="role === 'maintenance'">养护人员可创建工单、处置待处理任务并更新健康状态。</template>
-        <template v-if="role === 'admin'">管理员可查看全部工单与树木档案，并审核养护/巡检人员的注册申请。</template>
       </span>
     </section>
   </div>
 
   <!-- Map Tool Panel (right sidebar) -->
-  <div class="map-tool-panel">
+  <div class="map-tool-panel" :class="{ 'is-collapsed': rightPanelCollapsed }">
     <div class="tool-panel-title">
       <Search :size="17" />
       <span>Find A Tree</span>
+      <button
+        type="button"
+        class="panel-collapse-button"
+        aria-label="收起右侧筛选栏"
+        title="收起筛选栏"
+        @click="rightPanelCollapsed = true"
+      >
+        <ChevronRight :size="18" />
+      </button>
     </div>
     <a-auto-complete
       class="tree-search"
@@ -323,6 +339,17 @@ watch(() => addTreeForm.value.treeType, (val) => {
       @reset="onReset"
     />
   </div>
+
+  <button
+    v-if="rightPanelCollapsed"
+    type="button"
+    class="right-panel-restore map-panel-restore"
+    aria-label="展开右侧筛选栏"
+    @click="rightPanelCollapsed = false"
+  >
+    <ChevronLeft :size="17" />
+    <span>筛选</span>
+  </button>
 
   <!-- Map Key -->
   <div class="map-key" :style="{ left: (homePanelWidth + 64) + 'px' }">
