@@ -44,6 +44,7 @@ const matchedPark = ref(null);
 const selectedWindow = ref(null);
 const selectedPhotoSpotIds = ref([]);
 const activeSpot = ref(null);
+const showPhotoSpotPicker = ref(false);
 const isPickingPosition = ref(false);
 const photoDestinationId = ref(null);
 const seasonalDestinationPoint = ref(null);
@@ -54,8 +55,7 @@ const amapPolylines = ref([]);
 const routeUsingAmap = ref(false);
 const isPlanningRoute = ref(false);
 const routeDurationSeconds = ref(0);
-const routePanelLevel = ref("mid");
-const panelDrag = ref({ active: false, startY: 0, currentY: 0, moved: false });
+const routePanelCollapsed = ref(false);
 const seasonalPickedPoints = ref([]);
 const isPickingSeasonalPoint = ref(false);
 const isPickingSeasonalDestination = ref(false);
@@ -96,56 +96,23 @@ const routeDurationMinutes = computed(() =>
     : Math.max(1, Math.round(routeTotalMeters.value / 80))
 );
 const businessTitle = computed(() => (business.value === "photo" ? "拍照机位路线" : "季节主题路线"));
-const routePanelClass = computed(() => `panel-${routePanelLevel.value}`);
-
-function setRoutePanelLevelByDirection(deltaY) {
-  if (deltaY < -22) {
-    routePanelLevel.value = "expanded";
-    return;
-  }
-  if (deltaY > 22) {
-    routePanelLevel.value = routePanelLevel.value === "expanded" ? "mid" : "compact";
-  }
-}
-
-function handleRoutePanelPointerDown(event) {
-  panelDrag.value = { active: true, startY: event.clientY, currentY: event.clientY, moved: false };
-  event.currentTarget?.setPointerCapture?.(event.pointerId);
-}
-
-function handleRoutePanelPointerMove(event) {
-  if (!panelDrag.value.active) return;
-  const deltaY = event.clientY - panelDrag.value.startY;
-  panelDrag.value = { ...panelDrag.value, currentY: event.clientY, moved: Math.abs(deltaY) > 8 };
-  setRoutePanelLevelByDirection(deltaY);
-}
-
-function handleRoutePanelPointerUp(event) {
-  if (!panelDrag.value.active) return;
-  const deltaY = event.clientY - panelDrag.value.startY;
-  if (!panelDrag.value.moved) {
-    routePanelLevel.value = routePanelLevel.value === "expanded" ? "compact" : "expanded";
-  } else {
-    setRoutePanelLevelByDirection(deltaY);
-  }
-  panelDrag.value = { active: false, startY: 0, currentY: 0, moved: false };
-  event.currentTarget?.releasePointerCapture?.(event.pointerId);
-}
-
 function openSeasonalRoute() {
   business.value = "seasonal";
+  routePanelCollapsed.value = false;
   resetRouteState();
   locateVisitor();
 }
 
 function openPhotoRoute() {
   business.value = "photo";
+  routePanelCollapsed.value = false;
   resetRouteState();
   locateVisitor();
 }
 
 function backToBusiness() {
   business.value = null;
+  routePanelCollapsed.value = false;
   resetRouteState();
 }
 
@@ -153,6 +120,7 @@ function resetRouteState() {
   selectedWindow.value = null;
   selectedPhotoSpotIds.value = [];
   activeSpot.value = null;
+  showPhotoSpotPicker.value = false;
   photoDestinationId.value = null;
   seasonalDestinationPoint.value = null;
   isPickingPosition.value = false;
@@ -355,15 +323,17 @@ function redrawSeasonalOverlays() {
   const map = mapRef.value;
   if (!map) return;
   map.clearCustomOverlays();
+  const routeNodes = [];
   if (currentPosition.value) {
-    map.showLocationMarker(currentPosition.value.lat, currentPosition.value.lng);
+    routeNodes.push({ ...currentPosition.value, type: "start", label: "起" });
   }
-  if (destination.value) {
-    map.showTargetMarker(destination.value.lat, destination.value.lng, "destination", null);
-  }
-  seasonalPickedPoints.value.forEach((point) => {
-    map.showTargetMarker(point.lat, point.lng, "picked-waypoint", null);
+  seasonalPickedPoints.value.forEach((point, index) => {
+    routeNodes.push({ lat: point.lat, lng: point.lng, type: "waypoint", label: String(index + 1) });
   });
+  if (destination.value) {
+    routeNodes.push({ ...destination.value, type: "destination", label: "终" });
+  }
+  map.showRouteNodes(routeNodes);
 }
 
 function handleMapClick({ latitude, longitude }) {
@@ -591,9 +561,6 @@ function drawNavigationRoute() {
   if (!map || routeOrder.value.length === 0) return;
   map.clearCustomOverlays();
 
-  const first = routeOrder.value[0];
-  const last = routeOrder.value[routeOrder.value.length - 1];
-  map.showLocationMarker(first.lat, first.lng);
   if (routeUsingAmap.value && amapPolylines.value.length > 0) {
     amapPolylines.value.forEach((polyline) => map.showRoutePolyline(polyline));
   } else {
@@ -603,11 +570,12 @@ function drawNavigationRoute() {
       map.showNavigationLine(from.lat, from.lng, to.lat, to.lng);
     }
   }
-  for (let i = 1; i < routeOrder.value.length - 1; i++) {
-    const point = routeOrder.value[i];
-    map.showTargetMarker(point.lat, point.lng, "waypoint", null);
-  }
-  map.showTargetMarker(last.lat, last.lng, "destination", null);
+  map.showRouteNodes(routeOrder.value.map((point, index) => ({
+    lat: point.lat,
+    lng: point.lng,
+    type: index === 0 ? "start" : index === routeOrder.value.length - 1 ? "destination" : "waypoint",
+    label: index === 0 ? "起" : index === routeOrder.value.length - 1 ? "终" : String(index),
+  })));
 
   const center = getCenter(routeOrder.value);
   map.flyTo(center.lat, center.lng, 16);
@@ -667,26 +635,21 @@ function getCenter(points) {
         :highlighted-tree-ids="highlightedTreeIds"
         :photo-spots="photoSpotsForMap"
         :selected-photo-spot-ids="selectedPhotoSpotIds"
+        :photo-spot-destination-id="photoDestinationId"
+        compact
         @tree-select="handleTreeSelect"
         @map-click="handleMapClick"
         @photo-spot-select="handlePhotoSpotSelect"
       />
     </div>
 
-    <div class="mobile-route-panel" :class="routePanelClass">
-      <button
-        type="button"
-        class="mobile-route-panel-handle"
-        aria-label="拖动调整路线面板高度"
-        @pointerdown="handleRoutePanelPointerDown"
-        @pointermove="handleRoutePanelPointerMove"
-        @pointerup="handleRoutePanelPointerUp"
-        @pointercancel="handleRoutePanelPointerUp"
-      >
-        <span></span>
-        <em>{{ routePanelLevel === 'expanded' ? '下滑收起' : '上滑展开' }}</em>
-      </button>
-
+    <div
+      class="mobile-route-panel"
+      :class="{
+        'has-route-detail': business !== null,
+        'is-collapsed': business !== null && routePanelCollapsed,
+      }"
+    >
       <template v-if="business === null">
         <div class="mobile-card-title"><RouteIcon :size="17" />路线服务</div>
         <p class="mobile-route-copy">选择一种路线服务，系统会根据当前位置推荐对应景区的游览方案。</p>
@@ -710,7 +673,12 @@ function getCenter(points) {
             <component :is="business === 'photo' ? Camera : Trees" :size="17" />
             {{ businessTitle }}
           </div>
-          <button type="button" class="mobile-route-back" @click="backToBusiness">返回</button>
+          <span class="mobile-route-heading-actions">
+            <button type="button" class="mobile-route-back" @click="routePanelCollapsed = !routePanelCollapsed">
+              {{ routePanelCollapsed ? '展开' : '收起' }}
+            </button>
+            <button type="button" class="mobile-route-back" @click="backToBusiness">返回</button>
+          </span>
         </div>
 
         <div class="mobile-route-locate-row">
@@ -792,7 +760,7 @@ function getCenter(points) {
                 >
                   <MapPin :size="13" />定义终点
                 </a-button>
-                <a-button size="small" danger :disabled="!seasonalDestinationPoint" @click="clearSeasonalDestination">
+                <a-button class="mobile-danger-outline" size="small" :disabled="!seasonalDestinationPoint" @click="clearSeasonalDestination">
                   <X :size="13" />清除终点
                 </a-button>
               </div>
@@ -806,42 +774,14 @@ function getCenter(points) {
 
           <template v-else-if="business === 'photo'">
             <p v-if="photoSpotsForPark.length === 0" class="mobile-route-copy">该景区暂无机位数据。</p>
-            <div v-else class="mobile-spot-list">
-              <article
-                v-for="spot in photoSpotsForPark"
-                :key="spot.id"
-                class="mobile-spot-card"
-                :class="{ selected: isPhotoSpotSelected(spot), destination: isPhotoSpotDestination(spot) }"
-              >
-                <button type="button" class="mobile-spot-card-main" @click="handlePhotoSpotSelect(spot)">
-                  <span class="mobile-spot-card-top">
-                    <strong>{{ spot.code }}</strong>
-                    <em>{{ spot.name }}</em>
-                  </span>
-                  <p>{{ spot.description }}</p>
-                </button>
-                <div class="mobile-spot-card-actions">
-                  <button
-                    type="button"
-                    class="mobile-spot-card-action"
-                    :class="{ selected: isPhotoSpotSelected(spot) }"
-                    @click="togglePhotoSpotSelection(spot)"
-                  >
-                    <CheckCircle2 v-if="isPhotoSpotSelected(spot)" :size="13" />
-                    {{ isPhotoSpotSelected(spot) ? "已选途经点" : "选为途经点" }}
-                  </button>
-                  <button
-                    type="button"
-                    class="mobile-spot-card-action destination"
-                    :class="{ selected: isPhotoSpotDestination(spot) }"
-                    @click="chooseSpotDestination(spot)"
-                  >
-                    <Navigation v-if="isPhotoSpotDestination(spot)" :size="13" />
-                    {{ isPhotoSpotDestination(spot) ? "已设终点" : "设为终点" }}
-                  </button>
-                </div>
-              </article>
-            </div>
+            <button v-else type="button" class="mobile-photo-picker-entry" @click="showPhotoSpotPicker = true">
+              <span class="mobile-photo-picker-entry-icon"><Camera :size="19" /></span>
+              <span>
+                <strong>选择拍照机位</strong>
+                <em>在独立页面浏览 {{ photoSpotsForPark.length }} 个推荐机位</em>
+              </span>
+              <span class="mobile-photo-picker-entry-count">已选 {{ selectedPhotoSpotIds.length }} 个</span>
+            </button>
           </template>
 
           <template v-if="(business === 'photo' && photoSpotsForPark.length) || (business === 'seasonal' && selectedWindow)">
@@ -866,7 +806,7 @@ function getCenter(points) {
                 >
                   <Navigation :size="14" />开始导航
                 </a-button>
-                <a-button size="small" danger :disabled="!destination" @click="clearDestination">
+                <a-button class="mobile-danger-outline" :disabled="!destination" @click="clearDestination">
                   <X :size="13" />清除终点
                 </a-button>
               </div>
@@ -906,6 +846,71 @@ function getCenter(points) {
         </template>
       </template>
     </div>
+
+    <a-drawer
+      :open="showPhotoSpotPicker"
+      placement="bottom"
+      height="88dvh"
+      title="选择拍照机位"
+      class="mobile-bottom-drawer mobile-photo-picker-drawer"
+      @close="showPhotoSpotPicker = false"
+    >
+      <div class="mobile-photo-picker-shell">
+        <div class="mobile-photo-picker-intro">
+          <span><MapPin :size="14" />{{ matchedPark?.siteName || '当前景区' }}</span>
+          <strong>{{ photoSpotsForPark.length }} 个推荐机位</strong>
+        </div>
+
+        <div class="mobile-spot-list mobile-photo-picker-list">
+          <article
+            v-for="spot in photoSpotsForPark"
+            :key="spot.id"
+            class="mobile-spot-card"
+            :class="{ selected: isPhotoSpotSelected(spot), destination: isPhotoSpotDestination(spot) }"
+          >
+            <button type="button" class="mobile-spot-card-main" @click="handlePhotoSpotSelect(spot)">
+              <span class="mobile-spot-card-top">
+                <strong>{{ spot.code }}</strong>
+                <em>{{ spot.name }}</em>
+              </span>
+              <p>{{ spot.description }}</p>
+            </button>
+            <div class="mobile-spot-card-actions">
+              <button
+                type="button"
+                class="mobile-spot-card-action"
+                :class="{ selected: isPhotoSpotSelected(spot) }"
+                @click="togglePhotoSpotSelection(spot)"
+              >
+                <CheckCircle2 v-if="isPhotoSpotSelected(spot)" :size="13" />
+                {{ isPhotoSpotSelected(spot) ? "已选途经点" : "选为途经点" }}
+              </button>
+              <button
+                type="button"
+                class="mobile-spot-card-action destination"
+                :class="{ selected: isPhotoSpotDestination(spot) }"
+                @click="chooseSpotDestination(spot)"
+              >
+                <Navigation v-if="isPhotoSpotDestination(spot)" :size="13" />
+                {{ isPhotoSpotDestination(spot) ? "已设终点" : "设为终点" }}
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <div class="mobile-photo-picker-footer">
+          <span>
+            <em>已选机位</em>
+            <strong>{{ selectedPhotoSpotIds.length }} 个</strong>
+          </span>
+          <span>
+            <em>终点</em>
+            <strong>{{ destinationLabel }}</strong>
+          </span>
+          <a-button type="primary" block @click="showPhotoSpotPicker = false">完成选择</a-button>
+        </div>
+      </div>
+    </a-drawer>
 
     <a-drawer
       :open="Boolean(activeSpot)"

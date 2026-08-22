@@ -8,6 +8,7 @@ import Point from "@arcgis/core/geometry/Point";
 import Polygon from "@arcgis/core/geometry/Polygon";
 import Polyline from "@arcgis/core/geometry/Polyline";
 import SimpleMarkerSymbol from "@arcgis/core/symbols/SimpleMarkerSymbol";
+import PictureMarkerSymbol from "@arcgis/core/symbols/PictureMarkerSymbol";
 import SimpleFillSymbol from "@arcgis/core/symbols/SimpleFillSymbol";
 import SimpleLineSymbol from "@arcgis/core/symbols/SimpleLineSymbol";
 import { getDbhSize } from "../api/mockApi";
@@ -20,6 +21,7 @@ const props = defineProps({
   highlightedTreeIds: { type: Array, default: () => [] },
   photoSpots: { type: Array, default: () => [] },
   selectedPhotoSpotIds: { type: Array, default: () => [] },
+  photoSpotDestinationId: { type: [String, Number], default: null },
   compact: { type: Boolean, default: false },
 });
 
@@ -30,7 +32,69 @@ const viewRef = shallowRef(null);
 const layerRef = shallowRef(null);
 const photoSpotLayerRef = shallowRef(null);
 const overlayLayerRef = shallowRef(null);
+const routeNodesRef = ref([]);
 const treesRef = ref([...props.trees]);
+
+function createRouteNodeSymbol(type, label = "") {
+  const size = props.compact ? 22 : 30;
+  let content = "";
+  if (type === "start") {
+    content = `
+      <rect x="4" y="4" width="28" height="28" rx="7" fill="#507f2c" stroke="#ffffff" stroke-width="3"/>
+      <path d="M11 24.5 16.2 10l3.1 6.2 6.7 3.2-15 5.1Z" fill="#ffffff" stroke="#ffffff" stroke-linejoin="round"/>
+    `;
+  } else if (type === "destination") {
+    content = `
+      <rect x="4" y="4" width="28" height="28" rx="7" fill="#8f1f24" stroke="#ffffff" stroke-width="3"/>
+      <path d="M13 26V10m1 1h10l-2.5 4 2.5 4H14" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    `;
+  } else {
+    const safeLabel = String(label || "•").replace(/[^0-9]/g, "").slice(0, 2) || "•";
+    content = `
+      <rect x="4" y="4" width="28" height="28" rx="7" fill="#ffffff" stroke="#ffffff" stroke-width="4"/>
+      <rect x="6" y="6" width="24" height="24" rx="5" fill="#ffffff" stroke="#8f1f24" stroke-width="2.5"/>
+      <text x="18" y="22.5" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" font-weight="700" fill="#8f1f24">${safeLabel}</text>
+    `;
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">${content}</svg>`;
+  return new PictureMarkerSymbol({
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    width: size,
+    height: size,
+  });
+}
+
+function renderRouteNodes() {
+  const layer = overlayLayerRef.value;
+  if (!layer) return;
+  const oldRouteNodes = layer.graphics.toArray().filter((graphic) =>
+    graphic.attributes?.type === "route-node-marker" || graphic.attributes?.type === "route-node-group"
+  );
+  if (oldRouteNodes.length) layer.removeMany(oldRouteNodes);
+  const nodes = routeNodesRef.value;
+  if (!nodes.length) return;
+
+  const start = nodes.find((node) => node.type === "start");
+  const destination = nodes.find((node) => node.type === "destination");
+
+  const graphics = [];
+  if (start) {
+    graphics.push(new Graphic({
+      geometry: new Point({ longitude: start.lng, latitude: start.lat }),
+      symbol: createRouteNodeSymbol("start"),
+      attributes: { type: "route-node-marker", nodeType: "start" },
+    }));
+  }
+
+  if (destination) {
+    graphics.push(new Graphic({
+      geometry: new Point({ longitude: destination.lng, latitude: destination.lat }),
+      symbol: createRouteNodeSymbol("destination"),
+      attributes: { type: "route-node-marker", nodeType: "destination" },
+    }));
+  }
+  layer.addMany(graphics);
+}
 
 // Keep treesRef in sync
 watch(() => props.trees, (val) => {
@@ -111,6 +175,7 @@ onMounted(() => {
     layerRef.value = null;
     photoSpotLayerRef.value = null;
     overlayLayerRef.value = null;
+    routeNodesRef.value = [];
   });
 });
 
@@ -160,6 +225,22 @@ function renderPhotoSpots() {
   layer.removeAll();
   const graphics = props.photoSpots.flatMap((spot) => {
     const isSelected = props.selectedPhotoSpotIds.includes(spot.id);
+    const isDestination = props.photoSpotDestinationId === spot.id;
+    if (isSelected || isDestination) {
+      const selectedIndex = props.selectedPhotoSpotIds.indexOf(spot.id) + 1;
+      return [new Graphic({
+        geometry: new Point({
+          longitude: spot.longitude,
+          latitude: spot.latitude,
+        }),
+        symbol: createRouteNodeSymbol(isDestination ? "destination" : "waypoint", selectedIndex),
+        attributes: {
+          photoSpotId: spot.id,
+          name: spot.name,
+          type: isDestination ? "photo-spot-destination" : "photo-spot-waypoint",
+        },
+      })];
+    }
     const color = isSelected ? [242, 177, 52, 1] : [230, 106, 44, 0.95];
     const size = props.compact ? (isSelected ? 13 : 10) : (isSelected ? 20 : 16);
     return [
@@ -211,7 +292,7 @@ watch(
 
 // Update photo spot markers
 watch(
-  () => [props.photoSpots, props.selectedPhotoSpotIds, props.compact],
+  () => [props.photoSpots, props.selectedPhotoSpotIds, props.photoSpotDestinationId, props.compact],
   renderPhotoSpots,
   { deep: true }
 );
@@ -298,6 +379,26 @@ defineExpose({
       attributes: { type: "location-marker" },
     }));
   },
+  showRouteNodeMarker(lat, lng, nodeType, label = "") {
+    const layer = overlayLayerRef.value;
+    if (!layer) return;
+    layer.add(new Graphic({
+      geometry: new Point({ longitude: lng, latitude: lat }),
+      symbol: createRouteNodeSymbol(nodeType, label),
+      attributes: { type: "route-node-marker", nodeType, label },
+    }));
+  },
+  showRouteNodes(nodes) {
+    routeNodesRef.value = Array.isArray(nodes)
+      ? nodes.map((node) => ({
+        ...node,
+        lat: Number(node.lat),
+        lng: Number(node.lng),
+        label: String(node.label || ""),
+      }))
+      : [];
+    renderRouteNodes();
+  },
   showRadiusCircle(lat, lng, radiusM) {
     const layer = overlayLayerRef.value;
     if (!layer) return;
@@ -334,8 +435,8 @@ defineExpose({
   },
   clearCustomOverlays() {
     const layer = overlayLayerRef.value;
-    if (!layer) return;
-    layer.removeAll();
+    layer?.removeAll();
+    routeNodesRef.value = [];
   },
   showPendingTreeMarkers(pendingTrees, statusType) {
     const layer = overlayLayerRef.value;

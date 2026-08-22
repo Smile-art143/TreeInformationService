@@ -1,8 +1,8 @@
 <script setup>
-import { computed, inject, reactive, ref, watch } from "vue";
+import { computed, inject, nextTick, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  Camera, CheckCircle2, ChevronDown, ClipboardList, Compass, Heart, Home, Leaf,
+  Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Compass, Heart, Home, Leaf,
   ListChecks, MapPinned, Navigation, Route as RouteIcon, Search, Send, TreePine, UserRound, Wrench, X
 } from "lucide-vue-next";
 import { message } from "ant-design-vue";
@@ -14,6 +14,7 @@ import {
   fetchNearbyTreesMock, healthLabels, healthOptions, issueTypes, leadStatusLabels, roleLabels, statusLabels
 } from "../api/mockApi";
 import { fetchAmapWalkingRoute, isAmapKeyConfigured } from "../api/amap";
+import { mockTreeEcoBenefits } from "../api/ecoBenefits";
 
 const app = inject("appState");
 const route = useRoute();
@@ -82,9 +83,9 @@ const showOrderDrawer = ref(false);
 const activeLead = ref(null);
 const activeOrder = ref(null);
 const mobileNavigationOrder = ref(null);
+const navigationCardCollapsed = ref(true);
 const guideAnchorLocation = ref(null);
-const treeSheetLevel = ref("mid");
-const treeSheetDrag = ref({ active: false, startY: 0, currentY: 0, moved: false });
+const treeDetailExpanded = ref(false);
 const expandedSections = ref({
   nearby: false,
   photos: false,
@@ -92,6 +93,10 @@ const expandedSections = ref({
   rank: false,
 });
 const expandedTaskGroups = ref({});
+const photoPage = ref(0);
+const atlasPage = ref(0);
+const photoPageSize = 4;
+const atlasPageSize = 6;
 
 const mobileMapRef = ref(null);
 const currentLocation = ref(null);
@@ -111,6 +116,7 @@ const isSearchingInspect = ref(false);
 const inspectSelectedTree = ref(null);
 const isPickingInspectPosition = ref(false);
 const showInspectPanel = ref(false);
+const inspectPanelCollapsed = ref(false);
 const createOrderPreTree = ref(null);
 let inspectSearchDebounce = null;
 
@@ -163,7 +169,13 @@ const nearbyTrees = computed(() => {
     .sort((a, b) => a.distanceMeters - b.distanceMeters)
     .slice(0, 8);
 });
-const recentPhotos = computed(() => photoWallPhotos.value.slice(0, 8));
+const recentPhotos = computed(() => photoWallPhotos.value.slice(0, 12));
+const photoPageCount = computed(() => Math.max(1, Math.ceil(recentPhotos.value.length / photoPageSize)));
+const atlasPageCount = computed(() => Math.max(1, Math.ceil(allSpecies.value.length / atlasPageSize)));
+const visiblePhotos = computed(() => recentPhotos.value.slice(photoPage.value * photoPageSize, (photoPage.value + 1) * photoPageSize));
+const visibleSpecies = computed(() => allSpecies.value.slice(atlasPage.value * atlasPageSize, (atlasPage.value + 1) * atlasPageSize));
+const selectedTreeBenefits = computed(() => mockTreeEcoBenefits(selectedTree.value));
+const viewingTreeBenefits = computed(() => mockTreeEcoBenefits(viewingTree.value));
 const isPickingGuideAnchor = computed(() => route.query.return === "guide");
 const pickerTreeOptions = computed(() => trees.value.slice(0, 6));
 const navigationActionLabel = computed(() => role.value === "maintenance" ? "处置" : "复核");
@@ -174,7 +186,6 @@ const currentLocationLabel = computed(() => {
 const orderRouteDurationMinutes = computed(() =>
   orderRouteDuration.value ? Math.max(1, Math.round(orderRouteDuration.value / 60)) : 0
 );
-const treeSheetClass = computed(() => `sheet-${treeSheetLevel.value}`);
 const guideAnchorLabel = computed(() => {
   if (!guideAnchorLocation.value) return "未选择";
   const lat = Number(guideAnchorLocation.value.latitude).toFixed(5);
@@ -276,11 +287,17 @@ watch(activeOrder, (order) => {
 });
 
 watch(selectedTree, (tree) => {
-  if (tree) treeSheetLevel.value = "mid";
+  treeDetailExpanded.value = false;
 });
 
-watch(mobileNavigationOrder, (order) => {
-  if (!order) clearOrderRoute();
+watch(mobileNavigationOrder, async (order) => {
+  if (!order) {
+    clearOrderRoute();
+    return;
+  }
+  navigationCardCollapsed.value = true;
+  await nextTick();
+  focusNavigationTree();
 });
 
 watch(
@@ -301,6 +318,12 @@ function goTab(tab) {
 
 function toggleSection(key) {
   expandedSections.value[key] = !expandedSections.value[key];
+}
+
+function changePagedSection(section, direction) {
+  const page = section === "photos" ? photoPage : atlasPage;
+  const count = section === "photos" ? photoPageCount.value : atlasPageCount.value;
+  page.value = (page.value + direction + count) % count;
 }
 
 function toggleTaskGroup(title, index) {
@@ -327,53 +350,16 @@ function handleTreeSelect(tree) {
     });
     return;
   }
+  treeDetailExpanded.value = false;
   setSelectedTree(tree);
   if (showInspectPanel.value && isInspectRole.value) {
     inspectSelectedTree.value = tree;
   }
 }
 
-function setTreeSheetLevelByDirection(deltaY) {
-  if (deltaY < -22) {
-    treeSheetLevel.value = "expanded";
-    return;
-  }
-  if (deltaY > 22) {
-    treeSheetLevel.value = treeSheetLevel.value === "expanded" ? "mid" : "compact";
-  }
-}
-
-function handleTreeSheetPointerDown(event) {
-  treeSheetDrag.value = {
-    active: true,
-    startY: event.clientY,
-    currentY: event.clientY,
-    moved: false,
-  };
-  event.currentTarget?.setPointerCapture?.(event.pointerId);
-}
-
-function handleTreeSheetPointerMove(event) {
-  if (!treeSheetDrag.value.active) return;
-  const deltaY = event.clientY - treeSheetDrag.value.startY;
-  treeSheetDrag.value = {
-    ...treeSheetDrag.value,
-    currentY: event.clientY,
-    moved: Math.abs(deltaY) > 8,
-  };
-  setTreeSheetLevelByDirection(deltaY);
-}
-
-function handleTreeSheetPointerUp(event) {
-  if (!treeSheetDrag.value.active) return;
-  const deltaY = event.clientY - treeSheetDrag.value.startY;
-  if (!treeSheetDrag.value.moved) {
-    treeSheetLevel.value = treeSheetLevel.value === "expanded" ? "compact" : "expanded";
-  } else {
-    setTreeSheetLevelByDirection(deltaY);
-  }
-  treeSheetDrag.value = { active: false, startY: 0, currentY: 0, moved: false };
-  event.currentTarget?.releasePointerCapture?.(event.pointerId);
+function closeTreeSelection() {
+  treeDetailExpanded.value = false;
+  setSelectedTree(null);
 }
 
 function selectGuideAnchor(tree) {
@@ -573,7 +559,18 @@ function navigateToOrder(order) {
 
 function clearMobileNavigationOrder() {
   mobileNavigationOrder.value = null;
+  navigationCardCollapsed.value = true;
+  setSelectedTree(null);
   clearOrderRoute();
+}
+
+function focusNavigationTree() {
+  const tree = mobileNavigationTree.value;
+  const map = mobileMapRef.value;
+  if (!tree || !map) return;
+  const statusType = role.value === "maintenance" ? "processing" : "reviewing";
+  map.flyTo(tree.latitude, tree.longitude, 18);
+  map.showTargetMarker(tree.latitude, tree.longitude, statusType, tree.dbh);
 }
 
 function locateCurrentPosition() {
@@ -610,6 +607,7 @@ function startPickCurrentLocation() {
 function toggleInspectPanel() {
   showInspectPanel.value = !showInspectPanel.value;
   if (showInspectPanel.value) {
+    inspectPanelCollapsed.value = false;
     updateInspectMapOverlays();
     if (inspectResults.value.length === 0) searchInspectTrees();
   } else {
@@ -677,15 +675,17 @@ async function planOrderRoute() {
   if (!tree) return;
   clearOrderRoute();
 
+  const statusType = role.value === "maintenance" ? "processing" : "reviewing";
+  const map = mobileMapRef.value;
+  map?.flyTo(tree.latitude, tree.longitude, 18);
+  map?.showTargetMarker(tree.latitude, tree.longitude, statusType, tree.dbh);
+
   if (!currentLocation.value) {
     message.info("请先定位当前位置");
     return;
   }
 
-  const statusType = role.value === "maintenance" ? "processing" : "reviewing";
-  const map = mobileMapRef.value;
   map?.showLocationMarker(currentLocation.value.lat, currentLocation.value.lng);
-  map?.showTargetMarker(tree.latitude, tree.longitude, statusType, tree.dbh);
 
   if (!isAmapKeyConfigured()) {
     map?.showNavigationLine(
@@ -832,6 +832,7 @@ function submitReview(passed) {
           :trees="filteredTrees"
           :selected-tree="selectedTree"
           :species-colors="speciesColors"
+          compact
           @tree-select="handleTreeSelect"
           @map-click="handleMapClick"
         />
@@ -859,14 +860,17 @@ function submitReview(passed) {
         <MapPinned :size="16" />问题树木定位
       </button>
 
-      <div v-if="isInspectRole && showInspectPanel && !mobileNavigationOrder" class="mobile-inspect-panel">
+      <div v-if="isInspectRole && showInspectPanel && !mobileNavigationOrder" class="mobile-inspect-panel" :class="{ collapsed: inspectPanelCollapsed }">
         <div class="mobile-inspect-head">
           <span class="mobile-inspect-title"><MapPinned :size="17" />问题树木选择定位</span>
-          <button type="button" class="mobile-inspect-close" aria-label="关闭" @click="toggleInspectPanel"><X :size="18" /></button>
+          <span class="mobile-inspect-head-actions">
+            <button type="button" class="mobile-inspect-close" :aria-label="inspectPanelCollapsed ? '展开定位面板' : '收起定位面板'" @click="inspectPanelCollapsed = !inspectPanelCollapsed">
+              <ChevronDown :size="18" :class="{ open: !inspectPanelCollapsed }" />
+            </button>
+            <button type="button" class="mobile-inspect-close" aria-label="关闭定位面板" @click="toggleInspectPanel"><X :size="18" /></button>
+          </span>
         </div>
-
-        
-
+        <div v-show="!inspectPanelCollapsed" class="mobile-inspect-panel-body">
         <p class="mobile-inspect-hint">
           点击地图选点或修改坐标，自动搜索半径内的树木 · 当前：{{ inspectPosition.lat.toFixed(6) }}, {{ inspectPosition.lng.toFixed(6) }}
         </p>
@@ -930,6 +934,7 @@ function submitReview(passed) {
           </div>
           <a-button type="primary" block @click="openCreateOrder(inspectSelectedTree)">选定此树，创建工单</a-button>
         </div>
+        </div>
       </div>
 
       <div v-else-if="isPickingGuideAnchor" class="mobile-map-picker-card">
@@ -943,8 +948,14 @@ function submitReview(passed) {
         </div>
       </div>
 
-      <div v-else-if="mobileNavigationOrder" class="mobile-map-guidance-card">
-        <div class="mobile-card-title"><Navigation :size="17" />工单导航</div>
+      <div v-else-if="mobileNavigationOrder" class="mobile-map-guidance-card" :class="{ collapsed: navigationCardCollapsed }">
+        <div class="mobile-guidance-heading">
+          <div class="mobile-card-title"><Navigation :size="17" />工单导航</div>
+          <button type="button" @click="navigationCardCollapsed = !navigationCardCollapsed">
+            {{ navigationCardCollapsed ? '展开' : '收起' }}
+          </button>
+        </div>
+        <template v-if="!navigationCardCollapsed">
         <div class="mobile-info-row"><span>目标树木</span><strong>{{ mobileNavigationTree?.code }} / {{ mobileNavigationTree?.species }}</strong></div>
         <div class="mobile-info-row"><span>工单编号</span><strong>{{ mobileNavigationOrder.orderNo }}</strong></div>
         <div class="mobile-info-row"><span>当前位置</span><strong>{{ currentLocationLabel }}</strong></div>
@@ -974,21 +985,25 @@ function submitReview(passed) {
           </a-button>
           <a-button @click="clearMobileNavigationOrder">退出导航</a-button>
         </div>
+        </template>
       </div>
 
-      <div v-else-if="selectedTree" class="mobile-tree-sheet" :class="treeSheetClass">
-        <button
-          type="button"
-          class="mobile-sheet-drag-handle"
-          aria-label="拖动调整树木详情卡片高度"
-          @pointerdown="handleTreeSheetPointerDown"
-          @pointermove="handleTreeSheetPointerMove"
-          @pointerup="handleTreeSheetPointerUp"
-          @pointercancel="handleTreeSheetPointerUp"
-        >
-          <span></span>
-          <em>{{ treeSheetLevel === 'expanded' ? '下滑收起' : '上滑展开' }}</em>
-        </button>
+      <div v-else-if="selectedTree && !treeDetailExpanded" class="mobile-tree-peek" role="status">
+        <span class="mobile-tree-peek-marker"><Leaf :size="17" /></span>
+        <span class="mobile-tree-peek-copy">
+          <strong>{{ selectedTree.code }} / {{ selectedTree.species }}</strong>
+          <em>已定位并高亮 · {{ selectedTree.siteName || "位置未记录" }}</em>
+        </span>
+        <button type="button" class="mobile-tree-peek-detail" @click="treeDetailExpanded = true">查看详情</button>
+        <button type="button" class="mobile-tree-peek-close" aria-label="取消选择" @click="closeTreeSelection"><X :size="17" /></button>
+      </div>
+
+      <div v-else-if="selectedTree" class="mobile-tree-sheet sheet-expanded">
+        <div class="mobile-sheet-toolbar">
+          <strong>树木详情</strong>
+          <button type="button" @click="treeDetailExpanded = false">收起</button>
+          <button type="button" aria-label="关闭详情" @click="closeTreeSelection"><X :size="17" /></button>
+        </div>
         <img v-if="currentTreePhoto" :src="currentTreePhoto" :alt="`${selectedTree.species}照片`" />
         <div class="mobile-sheet-body">
           <div class="mobile-sheet-title">
@@ -1006,6 +1021,16 @@ function submitReview(passed) {
             <div><span>胸径</span><strong>{{ selectedTree.dbh || "未记录" }} cm</strong></div>
             <div><span>类型</span><strong>{{ selectedTree.treeType || (selectedTree.isAncient ? "古树" : "普通树木") }}</strong></div>
             <div><span>位置</span><strong>{{ selectedTree.siteName || "大兴善寺" }}</strong></div>
+          </div>
+          <div class="mobile-tree-benefits">
+            <div class="mobile-benefit-heading"><Leaf :size="15" /><strong>单树生态效益</strong></div>
+            <div class="mobile-benefit-grid">
+              <div><strong>¥{{ selectedTreeBenefits.totalValueYuan }}</strong><span>五项生态价值合计</span></div>
+              <div><strong>{{ selectedTreeBenefits.carbonStorage }}</strong><span>kg C 碳储量</span></div>
+              <div><strong>{{ selectedTreeBenefits.oxygenProduction }}</strong><span>kg 年产氧</span></div>
+              <div><strong>{{ selectedTreeBenefits.stormwaterIntercepted }}</strong><span>L 雨水截留</span></div>
+            </div>
+            <p v-if="selectedTreeBenefits.totalValueYuan === 0" class="mobile-benefit-empty">暂无该树测算数据，等待生态价值接口补充。</p>
           </div>
           <p v-if="selectedTree.isAncient || selectedTree.protectionLevel" class="mobile-tree-note">
             保护等级：{{ selectedTree.protectionLevel || "古树名木" }}
@@ -1075,7 +1100,7 @@ function submitReview(passed) {
         </button>
         <div v-show="expandedSections.photos" class="mobile-collapsible-body">
           <div class="mobile-photo-grid">
-            <article v-for="photo in recentPhotos" :key="photo.id" class="mobile-photo-card">
+            <article v-for="photo in visiblePhotos" :key="photo.id" class="mobile-photo-card">
               <img :src="photo.photoUrl" :alt="`${photo.treeCode} 打卡照片`" />
               <div>
                 <strong>{{ photo.userName }}</strong>
@@ -1085,6 +1110,11 @@ function submitReview(passed) {
                 </button>
               </div>
             </article>
+          </div>
+          <div v-if="photoPageCount > 1" class="mobile-pager" aria-label="照片墙分页">
+            <button type="button" aria-label="上一页照片" @click="changePagedSection('photos', -1)"><ChevronLeft :size="18" /></button>
+            <span>第 {{ photoPage + 1 }} / {{ photoPageCount }} 页</span>
+            <button type="button" aria-label="下一页照片" @click="changePagedSection('photos', 1)"><ChevronRight :size="18" /></button>
           </div>
         </div>
       </div>
@@ -1096,10 +1126,15 @@ function submitReview(passed) {
         </button>
         <div v-show="expandedSections.atlas" class="mobile-collapsible-body">
           <div class="mobile-atlas-grid">
-            <div v-for="species in allSpecies.slice(0, 12)" :key="species" :class="['mobile-atlas-item', { unlocked: unlockedSpecies.includes(species) }]">
+            <div v-for="species in visibleSpecies" :key="species" :class="['mobile-atlas-item', { unlocked: unlockedSpecies.includes(species) }]">
               <strong>{{ species }}</strong>
               <span>{{ unlockedSpecies.includes(species) ? "已解锁" : "待打卡" }}</span>
             </div>
+          </div>
+          <div v-if="atlasPageCount > 1" class="mobile-pager" aria-label="树种图鉴分页">
+            <button type="button" aria-label="上一页图鉴" @click="changePagedSection('atlas', -1)"><ChevronLeft :size="18" /></button>
+            <span>第 {{ atlasPage + 1 }} / {{ atlasPageCount }} 页</span>
+            <button type="button" aria-label="下一页图鉴" @click="changePagedSection('atlas', 1)"><ChevronRight :size="18" /></button>
           </div>
         </div>
       </div>
@@ -1107,13 +1142,15 @@ function submitReview(passed) {
       <div class="mobile-card" :class="{ collapsed: !expandedSections.rank }">
         <button type="button" class="mobile-card-title mobile-card-toggle" @click="toggleSection('rank')">
           <span><CheckCircle2 :size="17" />打卡排行</span>
-          <em>Top 5 <ChevronDown :size="16" :class="{ open: expandedSections.rank }" /></em>
+          <em>{{ checkInLeaderboard.length }} 棵 <ChevronDown :size="16" :class="{ open: expandedSections.rank }" /></em>
         </button>
         <div v-show="expandedSections.rank" class="mobile-collapsible-body">
-          <div v-for="(item, index) in checkInLeaderboard.slice(0, 5)" :key="item.treeId" class="mobile-rank-row">
+          <div class="mobile-rank-list" :class="{ scrollable: checkInLeaderboard.length > 5 }">
+          <div v-for="(item, index) in checkInLeaderboard" :key="item.treeId" class="mobile-rank-row">
             <strong>{{ index + 1 }}</strong>
             <span>{{ item.treeCode }} / {{ item.species }}</span>
             <em>{{ item.count }} 次</em>
+          </div>
           </div>
         </div>
       </div>
@@ -1337,6 +1374,16 @@ function submitReview(passed) {
           <div class="mobile-info-row"><span>坐标</span><strong>{{ viewingTree.longitude?.toFixed(6) }}, {{ viewingTree.latitude?.toFixed(6) }}</strong></div>
           <div class="mobile-info-row"><span>类型</span><strong>{{ viewingTree.treeType || '普通树木' }}</strong></div>
           <div class="mobile-info-row"><span>保护等级</span><strong>{{ viewingTree.protectionLevel || '无' }}</strong></div>
+        </div>
+        <div class="mobile-tree-benefits mobile-drawer-benefits">
+          <div class="mobile-benefit-heading"><Leaf :size="15" /><strong>单树生态效益</strong></div>
+          <div class="mobile-benefit-grid">
+            <div><strong>¥{{ viewingTreeBenefits.totalValueYuan }}</strong><span>五项生态价值合计</span></div>
+            <div><strong>{{ viewingTreeBenefits.carbonStorage }}</strong><span>kg C 碳储量</span></div>
+            <div><strong>{{ viewingTreeBenefits.oxygenProduction }}</strong><span>kg 年产氧</span></div>
+            <div><strong>{{ viewingTreeBenefits.stormwaterIntercepted }}</strong><span>L 雨水截留</span></div>
+          </div>
+          <p v-if="viewingTreeBenefits.totalValueYuan === 0" class="mobile-benefit-empty">暂无该树测算数据，等待生态价值接口补充。</p>
         </div>
         <div v-if="viewingTree.story" class="mobile-card compact">
           <div class="mobile-card-title">资料卡片</div>
