@@ -18,6 +18,17 @@ import {
 } from "./api/mockApi";
 import { logout } from "./api/authApi";
 
+const WORK_ORDERS_STORAGE_KEY = "xian-tree-work-orders";
+
+function readStoredWorkOrders() {
+  try {
+    const raw = localStorage.getItem(WORK_ORDERS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---- router ----
 const router = useRouter();
 const route = useRoute();
@@ -34,7 +45,7 @@ const initialMaxDbh = Math.ceil(Math.max(...initialTrees.map((tree) => tree.dbh)
 const dbhRange = ref([0, initialMaxDbh]);
 const healthFilter = ref("all");
 const selectedTree = ref(null);
-const workOrders = ref(createInitialWorkOrders(initialTrees));
+const workOrders = ref(readStoredWorkOrders() ?? createInitialWorkOrders(initialTrees));
 const visitorLeads = ref(createInitialVisitorLeads(initialTrees));
 const selectedOrder = ref(null);
 const checkInRecords = ref([
@@ -169,6 +180,14 @@ const recentWorkOrders = computed(() => workOrders.value.slice(0, 3));
 const topSpecies = computed(() => stats.value.speciesRatio[0]);
 const isMobileRoute = computed(() => route.path.startsWith("/mobile"));
 
+function persistWorkOrders() {
+  try {
+    localStorage.setItem(WORK_ORDERS_STORAGE_KEY, JSON.stringify(workOrders.value));
+  } catch {
+    // 本地持久化失败时忽略，页面内状态仍正常可用。
+  }
+}
+
 // ---- sync route with page state ----
 watch(() => route.path, (path) => {
   const pageName = path.replace("/", "") || "map";
@@ -219,6 +238,7 @@ const addTree = (treeData) => {
 
 const createWorkOrder = (order, { navigate = true } = {}) => {
   workOrders.value = [order, ...workOrders.value];
+  persistWorkOrders();
   if (navigate && role.value !== "visitor") {
     router.push("/workbench");
   }
@@ -298,6 +318,7 @@ const convertVisitorLeadToWorkOrder = (lead) => {
   }
 
   workOrders.value = [order, ...workOrders.value];
+  persistWorkOrders();
   visitorLeads.value = visitorLeads.value.map((item) =>
     item.id === lead.id
       ? { ...item, status: "converted", convertedAt: now, convertedOrderId: order.id }
@@ -325,6 +346,7 @@ const resetMapFilters = () => {
 
 const updateWorkOrder = (nextOrder) => {
   workOrders.value = workOrders.value.map((order) => (order.id === nextOrder.id ? nextOrder : order));
+  persistWorkOrders();
   selectedOrder.value = nextOrder;
 };
 

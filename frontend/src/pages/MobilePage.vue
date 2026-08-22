@@ -179,6 +179,20 @@ const viewingTreeBenefits = computed(() => mockTreeEcoBenefits(viewingTree.value
 const isPickingGuideAnchor = computed(() => route.query.return === "guide");
 const pickerTreeOptions = computed(() => trees.value.slice(0, 6));
 const navigationActionLabel = computed(() => role.value === "maintenance" ? "处置" : "复核");
+const isKeyProtectionOrder = (order) =>
+  role.value === "inspector" &&
+  order?.issueType === "重点保护巡检" &&
+  order?.status === "processing";
+const arrivalActionLabel = computed(() =>
+  isKeyProtectionOrder(mobileNavigationOrder.value)
+    ? "创建工单"
+    : `到达后${navigationActionLabel.value}`
+);
+const orderTaskActionLabel = (order) => {
+  if (role.value === "maintenance") return "去现场处置";
+  if (isKeyProtectionOrder(order)) return "去巡检";
+  return "去现场复核";
+};
 const currentLocationLabel = computed(() => {
   if (!currentLocation.value) return "未定位";
   return `${Number(currentLocation.value.lat).toFixed(5)}, ${Number(currentLocation.value.lng).toFixed(5)}`;
@@ -241,6 +255,18 @@ const taskGroups = computed(() => {
 
   if (role.value === "inspector") {
     return [
+      {
+        title: "重点保护巡检工单",
+        description: "生态价值热点下发的重点保护巡检任务，到达后创建正式工单。",
+        empty: "暂无重点保护巡检工单",
+        items: workOrders.value
+          .filter(
+            (order) =>
+              order.issueType === "重点保护巡检" &&
+              order.status === "processing"
+          )
+          .map((order) => ({ type: "order", data: order })),
+      },
       {
         title: "游客线索",
         description: "核对游客提交的问题、位置和照片，确认有效后转为正式工单。",
@@ -521,6 +547,10 @@ function onViewTreeCameraCapture(event) {
 function handleCreateOrder(order) {
   createWorkOrder(order, { navigate: false });
   showCreateOrderModal.value = false;
+  if (isKeyProtectionOrder(mobileNavigationOrder.value)) {
+    mobileNavigationOrder.value = null;
+    clearOrderRoute();
+  }
   message.success("正式工单已创建");
 }
 
@@ -725,6 +755,16 @@ function openOrderDrawer(order = mobileNavigationOrder.value) {
   if (!order) return;
   activeOrder.value = order;
   showOrderDrawer.value = true;
+}
+
+function handleArrivalAction() {
+  const order = mobileNavigationOrder.value;
+  if (isKeyProtectionOrder(order)) {
+    const tree = mobileNavigationTree.value;
+    if (tree) openCreateOrder(tree);
+    return;
+  }
+  openOrderDrawer(order);
 }
 
 function convertActiveLead() {
@@ -980,8 +1020,8 @@ function submitReview(passed) {
         </div>
         <p v-if="isPickingLocation" style="margin:0 0 8px;font-size:12px;opacity:0.75;">点击地图任意位置作为当前位置</p>
         <div class="mobile-action-row">
-          <a-button type="primary" @click="openOrderDrawer(mobileNavigationOrder)">
-            到达后{{ navigationActionLabel }}
+          <a-button type="primary" @click="handleArrivalAction">
+            {{ arrivalActionLabel }}
           </a-button>
           <a-button @click="clearMobileNavigationOrder">退出导航</a-button>
         </div>
@@ -1193,7 +1233,7 @@ function submitReview(passed) {
               class="mobile-task-action"
               @click.stop="openTaskItem(item)"
             >
-              <Navigation :size="12" />{{ role === 'maintenance' ? '去现场处置' : '去现场复核' }}
+              <Navigation :size="12" />{{ orderTaskActionLabel(item.data) }}
             </button>
             <em>{{ item.data.updatedAt || item.data.createdAt }}</em>
           </div>

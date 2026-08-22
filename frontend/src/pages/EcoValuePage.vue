@@ -21,7 +21,15 @@ import {
 import { TREE_VALUE_SIZE_STOPS } from "../utils/ecoSymbols";
 
 const app = inject("appState");
-const { speciesColors, treeSearchOptions } = app;
+const {
+  speciesColors,
+  treeSearchOptions,
+  currentUser,
+  currentUserName,
+  role,
+  createWorkOrder,
+  workOrders,
+} = app;
 
 const siteOptions = computed(() =>
   Array.from(new Set(app.trees.value.map((tree) => tree.siteName)))
@@ -287,13 +295,34 @@ async function handleCreateWorkOrder() {
   submitting.value = true;
   submitResult.value = null;
   try {
-    const result = await createKeyProtectionWorkOrder([...selectedRowKeys.value]);
+    const existingWorkOrderTreeIds = workOrders.value
+      .filter((order) => ["processing", "reviewing"].includes(order.status))
+      .map((order) => order.treeId);
+    const result = await createKeyProtectionWorkOrder([...selectedRowKeys.value], {
+      creatorId: currentUser.value?.id,
+      creatorRole: role.value,
+      creatorName: currentUserName.value,
+      issueDescription: "生态热点重点保护巡检",
+      existingWorkOrderTreeIds,
+    });
+
+    result.success.forEach((order) => {
+      createWorkOrder(order, { navigate: false });
+    });
+
+    const failedText = result.failed.length
+      ? `；失败 ${result.failed.map((item) => `${item.treeId}（${item.reason}）`).join("、")}`
+      : "";
     submitResult.value = {
-      type: "success",
-      title: "重点保护巡检工单已创建",
-      description: `工单号 ${result.order.orderNo}，包含 ${result.order.treeIds.length} 棵树木。`,
+      type: result.failedCount ? "warning" : "success",
+      title: result.failedCount ? "部分工单创建失败" : "重点保护巡检工单已创建",
+      description: `成功创建 ${result.successCount} 份工单${failedText}`,
     };
-    message.success(`已创建工单 ${result.order.orderNo}`);
+    if (result.successCount > 0) {
+      message.success(`已创建 ${result.successCount} 份重点保护巡检工单`);
+    } else {
+      message.error("工单创建失败，请查看失败明细");
+    }
   } catch (error) {
     submitResult.value = {
       type: "error",

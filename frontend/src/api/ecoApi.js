@@ -33,9 +33,18 @@ export async function fetchEcoTreesBySite(siteName, { signal } = {}) {
 }
 
 // 替换点 2（重点保护巡检工单）：
-// 接口就绪后，改为 POST /api/work-orders，body: { treeIds, issueType: "重点保护巡检" }。
-// 当前返回结构与现有工单模块保持一致，便于页面先完成交互联调。
-export async function createKeyProtectionWorkOrder(treeIds) {
+// 接口就绪后，改为 POST /api/work-orders，body: { treeIds, issueType: "重点保护巡检" }，
+// 返回结构保持为 { successCount, failedCount, success, failed }。
+export async function createKeyProtectionWorkOrder(
+  treeIds,
+  {
+    creatorId,
+    creatorRole,
+    creatorName,
+    issueDescription,
+    existingWorkOrderTreeIds = [],
+  } = {}
+) {
   if (!Array.isArray(treeIds) || treeIds.length === 0) {
     throw new Error("请至少选择一棵树木");
   }
@@ -43,17 +52,36 @@ export async function createKeyProtectionWorkOrder(treeIds) {
   await delay(350);
   const now = new Date().toLocaleString("zh-CN", { hour12: false });
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const existingSet = new Set(existingWorkOrderTreeIds || []);
+  const success = [];
+  const failed = [];
 
-  return {
-    success: true,
-    order: {
-      id: `wo-${Date.now()}`,
-      orderNo: `WO-${dateStr}-${Math.floor(Math.random() * 900 + 100)}`,
-      treeIds,
-      issueType: "重点保护巡检",
+  treeIds.forEach((treeId, index) => {
+    if (existingSet.has(treeId)) {
+      failed.push({ treeId, reason: "已有在办工单" });
+      return;
+    }
+    success.push({
+      id: `wo-${Date.now()}-${index}`,
+      orderNo: `WO-${dateStr}-${Math.floor(Math.random() * 900 + 100)}-${index + 1}`,
+      treeId,
       status: "processing",
+      issueType: "重点保护巡检",
+      issueDescription: issueDescription || "生态热点重点保护巡检",
+      creatorId,
+      creatorRole,
+      creatorName,
+      createPhotos: [],
+      treatmentPhotos: [],
       createdAt: now,
       updatedAt: now,
-    },
+    });
+  });
+
+  return {
+    successCount: success.length,
+    failedCount: failed.length,
+    success,
+    failed,
   };
 }
