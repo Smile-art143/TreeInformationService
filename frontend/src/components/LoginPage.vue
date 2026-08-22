@@ -6,6 +6,8 @@ import {
 import { message } from "ant-design-vue";
 import { demoAccounts, login, register } from "../api/authApi";
 import { organizations, roleLabels } from "../api/mockApi";
+import daxingshanRain from "../assets/login/daxingshan-rain.webp";
+import dayantaSunset from "../assets/login/dayanta-sunset.webp";
 
 const props = defineProps({
   initialRole: { type: String, default: "inspector" },
@@ -137,6 +139,16 @@ const submitRegister = async () => {
 
 <template>
   <main class="login-page" :class="{ 'mobile-login-page': mobile, 'desktop-admin-login': !mobile }">
+    <div v-if="!mobile" class="login-topbar">
+      <span>XI'AN URBAN TREE MAP</span>
+    </div>
+
+    <div v-if="!mobile" class="login-visual-backdrop" aria-hidden="true">
+      <img class="login-visual-primary" :src="daxingshanRain" alt="" />
+      <img class="login-visual-secondary" :src="dayantaSunset" alt="" />
+      <span class="login-visual-overlay"></span>
+    </div>
+
     <section class="login-hero">
       <div class="login-brand">
         <div class="brand-mark login-brand-mark">
@@ -150,6 +162,12 @@ const submitRegister = async () => {
       <p>面向城市树木档案、地图展示与养护协同的绿化服务平台。</p>
       <div class="login-metrics">
         <div><strong>437</strong><span>采集树木</span></div>
+      </div>
+      <div v-if="!mobile" class="login-place-caption">
+        <MapPinned :size="15" />
+        <span>大兴善寺</span>
+        <i></i>
+        <span>唐大慈恩寺遗址公园</span>
       </div>
     </section>
 
