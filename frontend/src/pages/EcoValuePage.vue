@@ -1,10 +1,10 @@
 <script setup>
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
-import { ChevronDown, ChevronLeft, ChevronRight, Leaf, MapPin, Search, Sparkles } from "lucide-vue-next";
+import { ChevronLeft, ChevronRight, Leaf, MapPin, Search, Sparkles } from "lucide-vue-next";
 import EcoValueMap from "../components/EcoValueMap.vue";
-import EcoSpeciesSymbol from "../components/EcoSpeciesSymbol.vue";
 import FilterPanel from "../components/FilterPanel.vue";
+import { otherSpeciesColor } from "../api/mockApi";
 import {
   createKeyProtectionWorkOrder,
   fetchEcoTreesBySite,
@@ -48,7 +48,6 @@ const ecoMapRef = ref(null);
 const gridFeatures = ref([]);
 const gridTreeMap = ref(new Map());
 const loading = ref(false);
-const speciesLegendExpanded = ref(false);
 const ECO_RIGHT_PANEL_KEY = "xian-eco-right-panel-collapsed";
 const rightPanelCollapsed = ref(
   window.localStorage.getItem(ECO_RIGHT_PANEL_KEY) === "true"
@@ -124,14 +123,23 @@ const speciesLegend = computed(() => {
   siteTrees.value.forEach((tree) => {
     counts.set(tree.species, (counts.get(tree.species) ?? 0) + 1);
   });
-  return Array.from(counts, ([species, count]) => ({ species, count })).sort(
-    (a, b) => b.count - a.count || a.species.localeCompare(b.species, "zh-Hans-CN")
-  );
+  const ranked = Array.from(counts.entries()).sort((a, b) => {
+    if (b[1] !== a[1]) return b[1] - a[1];
+    return a[0].localeCompare(b[0], "zh-Hans-CN");
+  });
+  const items = ranked.slice(0, 7).map(([species, count]) => ({
+    species,
+    count,
+    isOther: false,
+  }));
+  const otherCount = ranked
+    .slice(7)
+    .reduce((sum, [, count]) => sum + count, 0);
+  if (otherCount > 0) {
+    items.push({ species: "其他树种", count: otherCount, isOther: true });
+  }
+  return items;
 });
-
-const displayedSpeciesLegend = computed(() =>
-  speciesLegendExpanded.value ? speciesLegend.value : speciesLegend.value.slice(0, 6)
-);
 
 const columns = [
   {
@@ -367,6 +375,7 @@ onBeforeUnmount(() => {
       :grids="gridFeatures"
       :symbol-scale="treeSymbolScale"
       :auto-scale="autoScaleTreeSymbols"
+      :species-colors="speciesColors"
       @tree-select="onTreeSelect"
       @grid-select="openGridDrawer"
     />
@@ -443,6 +452,7 @@ onBeforeUnmount(() => {
           :species-colors="speciesColors"
           eco-symbol-mode
           interactive-legend
+          hide-species-legend-tags
           @species-change="speciesFilter = $event"
           @dbh-range-change="dbhRange = $event"
           @health-change="healthFilter = $event"
@@ -506,34 +516,31 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="eco-legend eco-tree-legend">
-        <button
-          type="button"
-          class="eco-legend-toggle"
-          :aria-expanded="speciesLegendExpanded"
-          @click="speciesLegendExpanded = !speciesLegendExpanded"
-        >
-          <span class="eco-legend-title">
-            <Leaf :size="15" />
-            <span>树木点位图例</span>
-          </span>
-          <span class="eco-legend-toggle-copy">
-            {{ speciesLegendExpanded ? '收起' : `全部 ${speciesLegend.length} 种` }}
-            <ChevronDown :size="15" :class="{ open: speciesLegendExpanded }" />
-          </span>
-        </button>
+        <div class="eco-legend-title">
+          <Leaf :size="15" />
+          <span>树木点位图例</span>
+        </div>
 
-        <p class="eco-legend-note">颜色与形状表示树种，点击可同步筛选。</p>
+        <p class="eco-legend-note">颜色表示树种，点击树种可同步筛选。</p>
         <div class="eco-species-legend-list">
           <button
-            v-for="item in displayedSpeciesLegend"
+            v-for="item in speciesLegend"
             :key="item.species"
             type="button"
             class="eco-species-legend-item"
             :class="{ active: speciesFilter.includes(item.species) }"
-            :aria-pressed="speciesFilter.includes(item.species)"
-            @click="toggleSpeciesFilter(item.species)"
+            :aria-pressed="!item.isOther && speciesFilter.includes(item.species)"
+            :disabled="item.isOther"
+            @click="!item.isOther && toggleSpeciesFilter(item.species)"
           >
-            <EcoSpeciesSymbol :species="item.species" :size="13" />
+            <span
+              class="eco-species-legend-dot"
+              :style="{
+                background: item.isOther
+                  ? otherSpeciesColor
+                  : speciesColors[item.species] ?? '#4B7F52',
+              }"
+            />
             <span>{{ item.species }}</span>
             <small>{{ item.count }}</small>
           </button>
@@ -1034,6 +1041,15 @@ onBeforeUnmount(() => {
   text-align: left;
 }
 
+.eco-species-legend-dot {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border: 1px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(31, 45, 50, 0.2);
+}
+
 .eco-species-legend-item:hover,
 .eco-species-legend-item.active {
   color: var(--nyc-green-dark);
@@ -1046,6 +1062,11 @@ onBeforeUnmount(() => {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.eco-species-legend-item:disabled {
+  cursor: default;
+  opacity: 0.96;
 }
 
 .eco-species-legend-item small {

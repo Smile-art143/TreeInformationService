@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { Filter, RotateCcw } from "lucide-vue-next";
 import { otherSpeciesColor, topSpeciesColorLimit } from "../api/mockApi";
+import { OTHER_SPECIES_KEY } from "../utils/ecoSymbols";
 import EcoSpeciesSymbol from "./EcoSpeciesSymbol.vue";
 
 const props = defineProps({
@@ -13,6 +14,8 @@ const props = defineProps({
   speciesColors: { type: Object, default: () => ({}) },
   ecoSymbolMode: { type: Boolean, default: false },
   interactiveLegend: { type: Boolean, default: false },
+  hideSpeciesLegendTags: { type: Boolean, default: false },
+  speciesSymbolMap: { type: Object, default: () => ({}) },
 });
 
 const emit = defineEmits(["speciesChange", "dbhRangeChange", "healthChange", "reset"]);
@@ -95,7 +98,7 @@ const onLegendSpeciesClick = (species) => {
           @change="onDbhRangeChange"
         />
       </div>
-      <div class="legend-list">
+      <div v-if="!hideSpeciesLegendTags" class="legend-list">
         <a-tag
           v-for="[species] in topSpeciesLegend"
           :key="species"
@@ -103,18 +106,25 @@ const onLegendSpeciesClick = (species) => {
           :class="{ 'is-interactive': interactiveLegend, 'is-selected': speciesFilter.includes(species) }"
           @click="onLegendSpeciesClick(species)"
         >
-          <EcoSpeciesSymbol v-if="ecoSymbolMode" :species="species" :size="11" />
+          <EcoSpeciesSymbol
+            v-if="ecoSymbolMode"
+            :symbol="speciesSymbolMap[species] ?? speciesSymbolMap[OTHER_SPECIES_KEY]"
+            :size="11"
+          />
           <span v-else class="legend-dot" :style="{ background: speciesColors[species] }" />
           {{ species }}
         </a-tag>
         <a-tag v-if="otherSpeciesCount > 0" class="legend-tag">
-          <span class="legend-dot" :style="{ background: otherSpeciesColor }" />
+          <EcoSpeciesSymbol
+            v-if="ecoSymbolMode"
+            :symbol="speciesSymbolMap[OTHER_SPECIES_KEY]"
+            :size="11"
+          />
+          <span v-else class="legend-dot" :style="{ background: otherSpeciesColor }" />
           其他树种 {{ otherSpeciesCount }}
         </a-tag>
       </div>
-      <p v-if="ecoSymbolMode" class="eco-filter-symbol-note">
-        颜色与形状表示树种 · 点位大小表示五项生态价值合计
-      </p>
+      
       <a-button @click="onReset"><RotateCcw :size="15" />清除筛选</a-button>
     </a-space>
   </a-card>

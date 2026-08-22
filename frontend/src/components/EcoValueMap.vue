@@ -11,13 +11,14 @@ import SimpleMarkerSymbol from "@arcgis/core/symbols/SimpleMarkerSymbol";
 import SimpleFillSymbol from "@arcgis/core/symbols/SimpleFillSymbol";
 import SimpleLineSymbol from "@arcgis/core/symbols/SimpleLineSymbol";
 import { createTiandituBaseLayers } from "../map/tiandituLayers";
-import { speciesSymbolConfig, treeMarkerSize } from "../utils/ecoSymbols";
+import { treeMarkerSize } from "../utils/ecoSymbols";
 
 const props = defineProps({
   trees: { type: Array, default: () => [] },
   grids: { type: Array, default: () => [] },
   symbolScale: { type: Number, default: 100 },
   autoScale: { type: Boolean, default: true },
+  speciesColors: { type: Object, default: () => ({}) },
 });
 
 const emit = defineEmits(["gridSelect", "treeSelect"]);
@@ -42,12 +43,11 @@ function zoomCompensation() {
 }
 
 function treeSymbol(tree) {
-  const config = speciesSymbolConfig(tree.species);
   const scaledSize = treeMarkerSize(tree.eco?.annualValueYuan) *
     (props.symbolScale / 100) * zoomCompensation();
   return new SimpleMarkerSymbol({
-    style: config.style,
-    color: config.color,
+    style: "circle",
+    color: props.speciesColors[tree.species] ?? "#4B7F52",
     size: Math.max(6, Math.min(36, scaledSize)),
     outline: {
       color: "#ffffff",
@@ -219,7 +219,12 @@ onMounted(() => {
 });
 
 watch(
-  [() => props.trees, () => props.symbolScale, () => props.autoScale],
+  [
+    () => props.trees,
+    () => props.symbolScale,
+    () => props.autoScale,
+    () => props.speciesColors,
+  ],
   renderTrees,
   { deep: false }
 );
