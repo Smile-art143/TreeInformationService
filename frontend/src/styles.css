@@ -2720,6 +2720,15 @@ button {
   white-space: nowrap;
 }
 
+.mobile-archive-edit-entry,
+.mobile-archive-edit-form {
+  margin-top: 12px;
+}
+
+.mobile-tree-sheet .mobile-card.compact {
+  margin-top: 12px;
+}
+
 .mobile-tree-note {
   padding: 7px 8px;
   border-left: 4px solid #8dc063;
@@ -2774,6 +2783,34 @@ button {
 }
 
 .mobile-benefit-grid span { color: var(--nyc-gray); font-size: 11px; }
+.mobile-benefit-grid strong small {
+  color: var(--nyc-gray);
+  font-size: 10px;
+}
+.mobile-benefit-grid div em {
+  color: var(--nyc-green-dark);
+  font-size: 11px;
+  font-style: normal;
+}
+.mobile-benefit-total {
+  margin-top: 9px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--nyc-light-green);
+  border: 1px solid #d4e5c8;
+}
+.mobile-benefit-total strong {
+  color: var(--nyc-green-dark);
+  font-family: var(--font-mono);
+  font-size: 17px;
+}
+.mobile-benefit-total span {
+  color: var(--nyc-gray);
+  font-size: 11px;
+}
 .mobile-tree-benefits .mobile-benefit-empty { margin: 8px 0 0; color: var(--nyc-gray); font-size: 11px; }
 
 .mobile-action-row {
@@ -4186,7 +4223,7 @@ button {
 
 .mobile-inspect-controls {
   display: grid;
-  grid-template-columns: 96px 1fr 1fr;
+  grid-template-columns: 96px repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 10px;
 }

@@ -11,7 +11,7 @@ import { exportTreesAsShp } from "../api/shpExport";
 const app = inject("appState");
 
 const {
-  isEnglish, role, organizationName, roleOptions,
+  role, organizationName, roleOptions,
   trees, filteredTrees, speciesColors, treeSearchOptions,
   speciesFilter, dbhRange, healthFilter,
   recentWorkOrders, topSpecies, stats,

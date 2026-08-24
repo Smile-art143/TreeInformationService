@@ -3,7 +3,7 @@ import { ref, computed, watch, provide, onUnmounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import {
   Trees, MapPinned, BarChart3, ClipboardList, Compass, Route as RouteIcon,
-  Type, Languages, LogOut
+  Type, LogOut
 } from "lucide-vue-next";
 import LoginPage from "./components/LoginPage.vue";
 import TreeDetailDrawer from "./components/TreeDetailDrawer.vue";
@@ -102,7 +102,6 @@ const checkInRecords = ref([
 ]);
 const currentUserName = ref("游客");
 const textSize = ref("default");
-const language = ref("zh");
 const homePanelWidth = ref(496);
 const isResizingHomePanel = ref(false);
 
@@ -112,34 +111,32 @@ const panelDefaultWidth = 496;
 const panelMaxWidth = 680;
 
 // ---- computed (was useMemo) ----
-const isEnglish = computed(() => language.value === "en");
-
 const roleOptions = computed(() => [
-  { label: isEnglish.value ? "Visitor" : "游客", value: "visitor" },
-  { label: isEnglish.value ? "Inspector" : "巡检人员", value: "inspector" },
-  { label: isEnglish.value ? "Maintenance" : "养护人员", value: "maintenance" },
+  { label: "游客", value: "visitor" },
+  { label: "巡检人员", value: "inspector" },
+  { label: "养护人员", value: "maintenance" },
 ]);
 
 const speciesColors = computed(() => getSpeciesColorMap(trees.value));
 
 const navOptions = computed(() => {
   const ecoOption = {
-    label: isEnglish.value ? "Eco Value" : "生态价值",
+    label: "生态价值",
     value: "eco",
   };
   if (role.value === "admin") {
     return [
-      { label: isEnglish.value ? "Map" : "地图", value: "map" },
+      { label: "树木地图", value: "map" },
       ecoOption,
-      { label: isEnglish.value ? "Work Orders" : "工单", value: "workbench" },
-      { label: isEnglish.value ? "Review" : "审核", value: "review" },
+      { label: "工单", value: "workbench" },
+      { label: "审核", value: "review" },
     ];
   }
   return [
-    { label: isEnglish.value ? "Map" : "地图", value: "map" },
+    { label: "地图", value: "map" },
     ...(role.value === "visitor" ? [] : [ecoOption]),
-    { label: isEnglish.value ? "Work Orders" : "工单", value: "workbench", disabled: role.value === "visitor" },
-    { label: isEnglish.value ? "Guide" : "导览", value: "guide" },
+    { label: "工单", value: "workbench", disabled: role.value === "visitor" },
+    { label: "导览", value: "guide" },
   ];
 });
 
@@ -429,12 +426,10 @@ const handleLogout = async () => {
 
 // ---- provide shared state to child components ----
 provide("appState", {
-  isEnglish,
   role,
   organizationName,
   currentUser,
   textSize,
-  language,
   trees,
   filteredTrees,
   speciesFilter,
@@ -484,7 +479,6 @@ provide("appState", {
   setDbhRange: (val) => { dbhRange.value = val; },
   setHealthFilter: (val) => { healthFilter.value = val; },
   setTextSize: (val) => { textSize.value = val; },
-  setLanguage: (val) => { language.value = val; },
   setRole: (val) => { role.value = val; },
   setOrganizationName: (val) => { organizationName.value = val; },
   setHomePanelWidth: (val) => { homePanelWidth.value = val; },
@@ -526,10 +520,10 @@ provide("appState", {
           </div>
           <div>
             <div class="brand-title">
-              {{ isEnglish ? "Xi'an Urban Tree Information Service Platform" : "西安城市树木信息服务平台" }}
+              西安城市树木信息服务平台
             </div>
             <div class="brand-subtitle">
-              {{ isEnglish ? "Explore and Care For Xi'an Urban Trees" : "城市树木档案、导览与养护协同平台" }}
+              城市树木档案、导览与养护协同平台
             </div>
           </div>
         </div>
@@ -540,15 +534,7 @@ provide("appState", {
             @click="textSize = textSize === 'large' ? 'default' : 'large'"
           >
             <Type :size="16" />
-            {{ isEnglish ? `Text Size: ${textSize === 'large' ? 'Large' : 'Normal'}` : `字号：${textSize === 'large' ? '大' : '标准'}` }}
-          </a-button>
-          <a-button
-            type="text"
-            :aria-pressed="language === 'en'"
-            @click="language = language === 'zh' ? 'en' : 'zh'"
-          >
-            <Languages :size="16" />
-            {{ isEnglish ? 'Language: EN' : '语言：中文' }}
+            字号：{{ textSize === 'large' ? '大' : '标准' }}
           </a-button>
         </div>
       </div>
@@ -561,7 +547,7 @@ provide("appState", {
           @change="navigateTo"
         />
         <div class="role-switcher">
-          <span class="role-label">{{ role === 'admin' ? (isEnglish ? 'Admin Console' : '管理后台') : (isEnglish ? 'Role' : '当前身份') }}</span>
+          <span class="role-label">{{ role === 'admin' ? '管理后台' : '当前身份' }}</span>
           <a-segmented
             v-if="role !== 'admin'"
             :value="role"
@@ -573,7 +559,7 @@ provide("appState", {
             @click="handleLogout"
           >
             <LogOut :size="15" />
-            {{ isEnglish ? 'Exit' : '退出' }}
+            退出
           </a-button>
         </div>
       </div>

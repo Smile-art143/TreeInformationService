@@ -2,8 +2,8 @@
 import { computed, inject, nextTick, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Compass, Heart, Home, Leaf,
-  ListChecks, MapPinned, Navigation, Route as RouteIcon, Search, Send, TreePine, UserRound, Wrench, X
+  BookOpen, Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Compass, Heart, Home, Leaf,
+  ListChecks, MapPinned, Navigation, PenLine, Route as RouteIcon, Search, Send, TreePine, UserRound, Wrench, X
 } from "lucide-vue-next";
 import { message } from "ant-design-vue";
 import ArcGISTreeMap from "../components/ArcGISTreeMap.vue";
@@ -14,7 +14,8 @@ import {
   fetchNearbyTreesMock, healthLabels, healthOptions, issueTypes, leadStatusLabels, roleLabels, statusLabels
 } from "../api/mockApi";
 import { fetchAmapWalkingRoute, isAmapKeyConfigured } from "../api/amap";
-import { mockTreeEcoBenefits } from "../api/ecoBenefits";
+import { ECO_BENEFIT_METRICS, mockTreeEcoBenefits } from "../api/ecoBenefits";
+import { findMatchedPark } from "../data/parkZones";
 
 const app = inject("appState");
 const route = useRoute();
@@ -86,6 +87,8 @@ const mobileNavigationOrder = ref(null);
 const navigationCardCollapsed = ref(true);
 const guideAnchorLocation = ref(null);
 const treeDetailExpanded = ref(false);
+const archiveEditing = ref(false);
+const archiveForm = ref({ species: "", dbh: "", story: "" });
 const expandedSections = ref({
   nearby: false,
   photos: false,
@@ -102,6 +105,7 @@ const mobileMapRef = ref(null);
 const currentLocation = ref(null);
 const isLocating = ref(false);
 const isPickingLocation = ref(false);
+const isPickingGuideAnchorOnMap = ref(false);
 const orderRoutePolyline = ref([]);
 const orderRouteMeters = ref(0);
 const orderRouteDuration = ref(0);
@@ -176,9 +180,21 @@ const visiblePhotos = computed(() => recentPhotos.value.slice(photoPage.value * 
 const visibleSpecies = computed(() => allSpecies.value.slice(atlasPage.value * atlasPageSize, (atlasPage.value + 1) * atlasPageSize));
 const selectedTreeBenefits = computed(() => mockTreeEcoBenefits(selectedTree.value));
 const viewingTreeBenefits = computed(() => mockTreeEcoBenefits(viewingTree.value));
+const selectedTreeBenefitItems = computed(() => toBenefitItems(selectedTreeBenefits.value));
+const viewingTreeBenefitItems = computed(() => toBenefitItems(viewingTreeBenefits.value));
 const isPickingGuideAnchor = computed(() => route.query.return === "guide");
 const pickerTreeOptions = computed(() => trees.value.slice(0, 6));
 const navigationActionLabel = computed(() => role.value === "maintenance" ? "处置" : "复核");
+function toBenefitItems(benefits) {
+  return ECO_BENEFIT_METRICS.map((metric) => ({
+    key: metric.key,
+    label: metric.label,
+    unit: metric.unit,
+    value: benefits?.[metric.key] ?? 0,
+    valueYuan: benefits?.[`${metric.key}ValueYuan`] ?? 0,
+    includedInTotal: metric.includedInTotal !== false,
+  }));
+}
 const isKeyProtectionOrder = (order) =>
   role.value === "inspector" &&
   order?.issueType === "重点保护巡检" &&
@@ -314,6 +330,7 @@ watch(activeOrder, (order) => {
 
 watch(selectedTree, (tree) => {
   treeDetailExpanded.value = false;
+  archiveEditing.value = false;
 });
 
 watch(mobileNavigationOrder, async (order) => {
@@ -385,7 +402,39 @@ function handleTreeSelect(tree) {
 
 function closeTreeSelection() {
   treeDetailExpanded.value = false;
+  archiveEditing.value = false;
   setSelectedTree(null);
+}
+
+function startEditArchive() {
+  if (!selectedTree.value) return;
+  archiveForm.value = {
+    species: selectedTree.value.species || "",
+    dbh: selectedTree.value.dbh || "",
+    story: selectedTree.value.story || "",
+  };
+  archiveEditing.value = true;
+}
+
+function saveArchive() {
+  const tree = selectedTree.value;
+  if (!tree) return;
+  if (!archiveForm.value.species.trim()) {
+    message.error("请填写树种");
+    return;
+  }
+  updateTree({
+    ...tree,
+    species: archiveForm.value.species.trim(),
+    dbh: Number(archiveForm.value.dbh) || 0,
+    story: archiveForm.value.story,
+  });
+  archiveEditing.value = false;
+  message.success("树木档案已保存");
+}
+
+function cancelEditArchive() {
+  archiveEditing.value = false;
 }
 
 function selectGuideAnchor(tree) {
@@ -416,11 +465,28 @@ function handleMapClick({ latitude, longitude }) {
     return;
   }
   if (!isPickingGuideAnchor.value) return;
+  if (!isPickingGuideAnchorOnMap.value) return;
   setGuideAnchorLocation({ latitude, longitude, name: "地图选点" });
 }
 
 function chooseGuideAnchorFromMap() {
+  isPickingGuideAnchorOnMap.value = false;
   router.push("/mobile/map?return=guide");
+}
+
+function startPickGuideAnchor() {
+  isPickingGuideAnchorOnMap.value = true;
+  message.info("请点击地图任意位置作为导览起点");
+}
+
+function locateGuideAnchor() {
+  getDeviceLocation(({ latitude, longitude }) => {
+    if (!findMatchedPark(latitude, longitude)) {
+      message.info("当前位置不在已开通路线的景区缓冲区内，请移动到景区附近或使用「地图选点」");
+      return;
+    }
+    setGuideAnchorLocation({ latitude, longitude, name: "我的定位" });
+  });
 }
 
 function startTreeGuide(tree = selectedTree.value) {
@@ -603,7 +669,7 @@ function focusNavigationTree() {
   map.showTargetMarker(tree.latitude, tree.longitude, statusType, tree.dbh);
 }
 
-function locateCurrentPosition() {
+function getDeviceLocation(onSuccess) {
   if (!navigator.geolocation) {
     message.warning("您的浏览器不支持地理定位");
     return;
@@ -611,10 +677,8 @@ function locateCurrentPosition() {
   isLocating.value = true;
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      currentLocation.value = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       isLocating.value = false;
-      message.success("已定位当前位置");
-      planOrderRoute();
+      onSuccess(pos.coords);
     },
     (error) => {
       isLocating.value = false;
@@ -626,6 +690,14 @@ function locateCurrentPosition() {
     },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
   );
+}
+
+function locateCurrentPosition() {
+  getDeviceLocation(({ latitude, longitude }) => {
+    currentLocation.value = { lat: latitude, lng: longitude };
+    message.success("已定位当前位置");
+    planOrderRoute();
+  });
 }
 
 function startPickCurrentLocation() {
@@ -685,6 +757,15 @@ function selectInspectTree(tree) {
 function startPickInspectPosition() {
   isPickingInspectPosition.value = true;
   message.info("请在地图上点击选择定位点");
+}
+
+function locateInspectPosition() {
+  getDeviceLocation(({ latitude, longitude }) => {
+    inspectPosition.lat = latitude;
+    inspectPosition.lng = longitude;
+    message.success("已定位当前位置");
+    searchInspectTrees();
+  });
 }
 
 function openCreateOrder(tree) {
@@ -928,6 +1009,9 @@ function submitReview(passed) {
             style="width: 96px;"
             @change="onInspectRadiusChange"
           />
+          <a-button size="small" :loading="isLocating" @click="locateInspectPosition">
+            <Navigation :size="14" />定位
+          </a-button>
           <a-button size="small" :type="isPickingInspectPosition ? 'primary' : 'default'" @click="startPickInspectPosition">
             <MapPinned :size="14" />地图选点
           </a-button>
@@ -979,7 +1063,15 @@ function submitReview(passed) {
 
       <div v-else-if="isPickingGuideAnchor" class="mobile-map-picker-card">
         <div class="mobile-card-title"><MapPinned :size="17" />选择导览位置</div>
-        <p>点击地图上的任意位置作为导览起点，系统会按这个位置计算附近树木距离。下面列表可快速把位置落在树木附近。</p>
+        <div class="mobile-action-row" style="margin: 0 0 10px;">
+          <a-button size="small" type="primary" :loading="isLocating" @click="locateGuideAnchor">
+            <Navigation :size="14" />定位
+          </a-button>
+          <a-button size="small" :type="isPickingGuideAnchorOnMap ? 'primary' : 'default'" @click="startPickGuideAnchor">
+            <MapPinned :size="14" />地图选点
+          </a-button>
+        </div>
+        <p>{{ isPickingGuideAnchorOnMap ? '请点击地图上的任意位置作为导览起点。' : '选择「定位」使用当前位置，或点击「地图选点」后在地图上点选，系统会按这个位置计算附近树木距离。' }}</p>
         <div class="mobile-picker-list">
           <button v-for="tree in pickerTreeOptions" :key="tree.id" type="button" @click="selectGuideAnchor(tree)">
             <strong>{{ tree.code }}</strong>
@@ -1055,20 +1147,52 @@ function submitReview(passed) {
               {{ healthLabels[selectedTree.healthStatus] }}
             </a-tag>
           </div>
-          <p>{{ selectedTree.locationDescription || selectedTree.story || "暂无相对位置说明" }}</p>
+          <p>{{ selectedTree.locationDescription || "暂无相对位置说明" }}</p>
           <div class="mobile-tree-info-grid">
             <div><span>树种</span><strong>{{ selectedTree.species }}</strong></div>
             <div><span>胸径</span><strong>{{ selectedTree.dbh || "未记录" }} cm</strong></div>
             <div><span>类型</span><strong>{{ selectedTree.treeType || (selectedTree.isAncient ? "古树" : "普通树木") }}</strong></div>
             <div><span>位置</span><strong>{{ selectedTree.siteName || "大兴善寺" }}</strong></div>
           </div>
+          <div v-if="selectedTree.story" class="mobile-card compact">
+            <div class="mobile-card-title"><BookOpen :size="15" />资料卡片</div>
+            <p class="mobile-drawer-copy">{{ selectedTree.story }}</p>
+          </div>
+          <div v-if="isInspectRole && !archiveEditing" class="mobile-archive-edit-entry">
+            <a-button type="default" block @click="startEditArchive">
+              <PenLine :size="15" />编辑档案
+            </a-button>
+          </div>
+          <div v-if="isInspectRole && archiveEditing" class="story-block mobile-archive-edit-form">
+            <div class="mobile-card-title"><PenLine :size="15" />编辑树木档案</div>
+            <a-form layout="vertical" class="archive-edit-form">
+              <a-form-item label="树种">
+                <a-input v-model:value="archiveForm.species" placeholder="例如：银杏" />
+              </a-form-item>
+              <a-form-item label="胸径">
+                <a-input v-model:value="archiveForm.dbh" placeholder="单位 cm" />
+              </a-form-item>
+              <a-form-item label="资料卡片">
+                <a-textarea v-model:value="archiveForm.story" :rows="3" />
+              </a-form-item>
+              <a-space>
+                <a-button type="primary" @click="saveArchive">保存</a-button>
+                <a-button @click="cancelEditArchive">取消</a-button>
+              </a-space>
+            </a-form>
+          </div>
           <div class="mobile-tree-benefits">
             <div class="mobile-benefit-heading"><Leaf :size="15" /><strong>单树生态效益</strong></div>
+            <div class="mobile-benefit-total">
+              <strong>¥{{ selectedTreeBenefits.totalValueYuan }}</strong>
+              <span>生态价值合计</span>
+            </div>
             <div class="mobile-benefit-grid">
-              <div><strong>¥{{ selectedTreeBenefits.totalValueYuan }}</strong><span>五项生态价值合计</span></div>
-              <div><strong>{{ selectedTreeBenefits.carbonStorage }}</strong><span>kg C 碳储量</span></div>
-              <div><strong>{{ selectedTreeBenefits.oxygenProduction }}</strong><span>kg 年产氧</span></div>
-              <div><strong>{{ selectedTreeBenefits.stormwaterIntercepted }}</strong><span>L 雨水截留</span></div>
+              <div v-for="item in selectedTreeBenefitItems" :key="item.key">
+                <strong>{{ item.value }} <small>{{ item.unit }}</small></strong>
+                <span>{{ item.label }}</span>
+                <em>¥{{ item.valueYuan }}</em>
+              </div>
             </div>
             <p v-if="selectedTreeBenefits.totalValueYuan === 0" class="mobile-benefit-empty">暂无该树测算数据，等待生态价值接口补充。</p>
           </div>
@@ -1285,7 +1409,7 @@ function submitReview(passed) {
       class="mobile-bottom-drawer"
       @close="showLeadDrawer = false"
     >
-      <a-form layout="vertical" @finish="submitLead">
+      <a-form layout="vertical">
         <a-form-item label="问题类型" required>
           <a-select v-model:value="leadForm.issueType" :options="issueTypes.map((type) => ({ label: type, value: type }))" />
         </a-form-item>
@@ -1300,7 +1424,7 @@ function submitReview(passed) {
             <a-button><Camera :size="15" />添加照片</a-button>
           </a-upload>
         </a-form-item>
-        <a-button type="primary" block size="large" html-type="submit">提交线索</a-button>
+        <a-button type="primary" block size="large" @click="submitLead">提交线索</a-button>
       </a-form>
     </a-drawer>
 
@@ -1417,16 +1541,21 @@ function submitReview(passed) {
         </div>
         <div class="mobile-tree-benefits mobile-drawer-benefits">
           <div class="mobile-benefit-heading"><Leaf :size="15" /><strong>单树生态效益</strong></div>
+          <div class="mobile-benefit-total">
+            <strong>¥{{ viewingTreeBenefits.totalValueYuan }}</strong>
+            <span>生态价值合计</span>
+          </div>
           <div class="mobile-benefit-grid">
-            <div><strong>¥{{ viewingTreeBenefits.totalValueYuan }}</strong><span>五项生态价值合计</span></div>
-            <div><strong>{{ viewingTreeBenefits.carbonStorage }}</strong><span>kg C 碳储量</span></div>
-            <div><strong>{{ viewingTreeBenefits.oxygenProduction }}</strong><span>kg 年产氧</span></div>
-            <div><strong>{{ viewingTreeBenefits.stormwaterIntercepted }}</strong><span>L 雨水截留</span></div>
+            <div v-for="item in viewingTreeBenefitItems" :key="item.key">
+              <strong>{{ item.value }} <small>{{ item.unit }}</small></strong>
+              <span>{{ item.label }}</span>
+              <em>¥{{ item.valueYuan }}</em>
+            </div>
           </div>
           <p v-if="viewingTreeBenefits.totalValueYuan === 0" class="mobile-benefit-empty">暂无该树测算数据，等待生态价值接口补充。</p>
         </div>
         <div v-if="viewingTree.story" class="mobile-card compact">
-          <div class="mobile-card-title">资料卡片</div>
+          <div class="mobile-card-title"><BookOpen :size="15" />资料卡片</div>
           <p class="mobile-drawer-copy">{{ viewingTree.story }}</p>
         </div>
         <input
