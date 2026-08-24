@@ -1,10 +1,9 @@
 <script setup>
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
-import { ChevronDown, ChevronLeft, ChevronRight, Leaf, MapPin, Search, Sparkles } from "lucide-vue-next";
+import { ChevronDown, ChevronLeft, ChevronRight, Filter, Leaf, MapPin, RotateCcw, Search, Sparkles } from "lucide-vue-next";
 import EcoValueMap from "../components/EcoValueMap.vue";
 import EcoSpeciesSymbol from "../components/EcoSpeciesSymbol.vue";
-import FilterPanel from "../components/FilterPanel.vue";
 import {
   createKeyProtectionWorkOrder,
   fetchEcoTreesBySite,
@@ -21,7 +20,7 @@ import {
 import { TREE_VALUE_SIZE_STOPS } from "../utils/ecoSymbols";
 
 const app = inject("appState");
-const { speciesColors, treeSearchOptions } = app;
+const { treeSearchOptions } = app;
 
 const siteOptions = computed(() =>
   Array.from(new Set(app.trees.value.map((tree) => tree.siteName)))
@@ -123,6 +122,10 @@ const speciesLegend = computed(() => {
 
 const displayedSpeciesLegend = computed(() =>
   speciesLegendExpanded.value ? speciesLegend.value : speciesLegend.value.slice(0, 6)
+);
+
+const maxDbh = computed(() =>
+  Math.ceil(Math.max(...siteTrees.value.map((tree) => Number(tree.dbh) || 0), 100))
 );
 
 const columns = [
@@ -404,22 +407,6 @@ onBeforeUnmount(() => {
         </div>
       </aside>
 
-      <div class="eco-filter-panel">
-        <FilterPanel
-          :trees="siteTrees"
-          :filtered-count="visibleTrees.length"
-          :species-filter="speciesFilter"
-          :dbh-range="dbhRange"
-          :health-filter="healthFilter"
-          :species-colors="speciesColors"
-          eco-symbol-mode
-          interactive-legend
-          @species-change="speciesFilter = $event"
-          @dbh-range-change="dbhRange = $event"
-          @health-change="healthFilter = $event"
-          @reset="resetFilters()"
-        />
-      </div>
     </div>
 
     <aside class="eco-summary-panel" :class="{ 'is-collapsed': rightPanelCollapsed }">
@@ -484,8 +471,8 @@ onBeforeUnmount(() => {
           @click="speciesLegendExpanded = !speciesLegendExpanded"
         >
           <span class="eco-legend-title">
-            <Leaf :size="15" />
-            <span>树木点位图例</span>
+            <Filter :size="15" />
+            <span>树木筛选与点位图例</span>
           </span>
           <span class="eco-legend-toggle-copy">
             {{ speciesLegendExpanded ? '收起' : `全部 ${speciesLegend.length} 种` }}
@@ -493,7 +480,44 @@ onBeforeUnmount(() => {
           </span>
         </button>
 
-        <p class="eco-legend-note">颜色与形状表示树种，点击可同步筛选。</p>
+        <div class="eco-tree-filter-summary">
+          <span>当前显示</span>
+          <strong>{{ visibleTrees.length }} / {{ siteTrees.length }} 棵</strong>
+          <button type="button" @click="resetFilters()">
+            <RotateCcw :size="13" />清除
+          </button>
+        </div>
+
+        <div class="eco-tree-filter-control eco-health-filter">
+          <div class="eco-tree-filter-label">健康状态</div>
+          <a-segmented
+            block
+            :value="healthFilter"
+            :options="[
+              { label: '全部', value: 'all' },
+              { label: '正常', value: 'healthy' },
+              { label: '待观察', value: 'warning' },
+              { label: '异常', value: 'problem' },
+            ]"
+            @change="healthFilter = $event"
+          />
+        </div>
+
+        <div class="eco-tree-filter-control">
+          <div class="eco-tree-filter-label">
+            <span>胸径范围</span>
+            <strong>{{ dbhRange[0] }} – {{ dbhRange[1] }} cm</strong>
+          </div>
+          <a-slider
+            range
+            :min="0"
+            :max="maxDbh"
+            :value="dbhRange"
+            @change="dbhRange = $event"
+          />
+        </div>
+
+        <p class="eco-legend-note">树种筛选 · 颜色与形状表示树种，点击下方图例即可筛选。</p>
         <div class="eco-species-legend-list">
           <button
             v-for="item in displayedSpeciesLegend"
@@ -655,17 +679,17 @@ onBeforeUnmount(() => {
     inset 0 0 112px rgba(180, 55, 48, 0.17);
 }
 
-.health-tone-healthy .eco-filter-panel :deep(.ant-segmented-item-selected) {
+.health-tone-healthy .eco-health-filter :deep(.ant-segmented-item-selected) {
   color: #2e6f36;
   background: #e8f4e4;
 }
 
-.health-tone-warning .eco-filter-panel :deep(.ant-segmented-item-selected) {
+.health-tone-warning .eco-health-filter :deep(.ant-segmented-item-selected) {
   color: #754200;
   background: #ffe7bd;
 }
 
-.health-tone-problem .eco-filter-panel :deep(.ant-segmented-item-selected) {
+.health-tone-problem .eco-health-filter :deep(.ant-segmented-item-selected) {
   color: #8f302b;
   background: #fde8e5;
 }
@@ -818,27 +842,12 @@ onBeforeUnmount(() => {
   color: #0e7c86;
 }
 
-.eco-filter-panel {
-  width: 100%;
-}
-
-.eco-filter-panel :deep(.map-panel) {
-  background: rgba(255, 255, 255, 0.97);
-  border: 1px solid #d6e0e3;
-  border-radius: 4px;
-  box-shadow: 0 2px 14px rgba(24, 62, 72, 0.1);
-}
-
-.eco-filter-panel :deep(.ant-card-body) {
-  padding: 14px;
-}
-
 .eco-summary-panel {
   position: absolute;
   z-index: 15;
   top: 16px;
   right: 16px;
-  width: 318px;
+  width: 352px;
   max-height: calc(100% - 32px);
   padding: 16px;
   overflow-y: auto;
@@ -981,6 +990,73 @@ onBeforeUnmount(() => {
   color: #5d7078;
   font-size: 11px;
   line-height: 1.55;
+}
+
+.eco-tree-filter-summary {
+  min-height: 36px;
+  margin-top: 12px;
+  padding: 7px 9px;
+  border: 1px solid #dce8eb;
+  border-radius: 3px;
+  background: #f4f9fa;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 7px;
+  color: #5d7078;
+  font-size: 11px;
+}
+
+.eco-tree-filter-summary strong {
+  color: #15323b;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.eco-tree-filter-summary button {
+  padding: 2px 0 2px 6px;
+  border: 0;
+  border-left: 1px solid #d6e0e3;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--nyc-green-dark);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.eco-tree-filter-control {
+  margin-top: 11px;
+}
+
+.eco-tree-filter-label {
+  min-height: 20px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #33474f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.eco-tree-filter-label strong {
+  color: var(--nyc-green-dark);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.eco-health-filter :deep(.ant-segmented-item-label) {
+  min-height: 28px;
+  padding-inline: 6px;
+  font-size: 11px;
+  line-height: 28px;
+}
+
+.eco-tree-filter-control :deep(.ant-slider) {
+  margin: 8px 5px 4px;
 }
 
 .eco-species-legend-list {
@@ -1223,8 +1299,7 @@ onBeforeUnmount(() => {
     overflow: visible;
   }
 
-  .eco-site-switcher,
-  .eco-filter-panel {
+  .eco-site-switcher {
     margin: 0;
   }
 
