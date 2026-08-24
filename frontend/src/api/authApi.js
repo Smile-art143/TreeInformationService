@@ -35,6 +35,18 @@ const seedUsers = [
     organizationName: "西安市园林养护一组",
     approvalStatus: "approved",
   },
+  // 预置管理员账号（不走注册流程，初始状态即“已启用”）。
+  // 实际项目中此为系统初始化账号，应提示管理员首次登录后修改默认密码。
+  {
+    id: "user-admin",
+    account: "admin",
+    username: "系统管理员",
+    password: "admin123",
+    role: "admin",
+    organizationId: "daxingshansi",
+    organizationName: "平台管理组",
+    approvalStatus: "approved",
+  },
 ];
 
 function readUsers() {
@@ -51,6 +63,22 @@ function writeRegisteredUser(user) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify([user, ...stored]));
 }
 
+function readStoredUsers() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function updateStoredUser(userId, patch) {
+  const next = readStoredUsers().map((item) =>
+    item.id === userId ? { ...item, ...patch } : item
+  );
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  return next.find((item) => item.id === userId) || null;
+}
+
 function sanitizeUser(user) {
   const { password, ...rest } = user;
   return rest;
@@ -65,6 +93,9 @@ export async function login(payload) {
   const user = readUsers().find((item) => item.account === account && item.role === payload.role);
   if (!user || user.password !== payload.password) {
     throw new Error("账号、密码或角色不匹配");
+  }
+  if (user.approvalStatus === "rejected") {
+    throw new Error("该账号已被驳回，请联系管理员或重新提交注册申请");
   }
 
   const currentUser = sanitizeUser(user);
@@ -96,9 +127,35 @@ export async function register(payload) {
     organizationId: payload.role === "visitor" ? "public" : payload.organizationId,
     organizationName: payload.role === "visitor" ? "公众访问" : organization?.label ?? payload.organizationName,
     approvalStatus: payload.role === "visitor" ? "approved" : "pending",
+    registeredAt: new Date().toLocaleString("zh-CN", { hour12: false }),
   };
   writeRegisteredUser(user);
   return sanitizeUser(user);
+}
+
+export async function getPendingUsers() {
+  return readUsers()
+    .filter(
+      (item) =>
+        item.approvalStatus === "pending" &&
+        (item.role === "inspector" || item.role === "maintenance")
+    )
+    .map(sanitizeUser);
+}
+
+export async function approveUser(userId) {
+  const updated = updateStoredUser(userId, { approvalStatus: "approved" });
+  if (!updated) throw new Error("未找到该注册申请");
+  return sanitizeUser(updated);
+}
+
+export async function rejectUser(userId, reason) {
+  const updated = updateStoredUser(userId, {
+    approvalStatus: "rejected",
+    rejectReason: reason,
+  });
+  if (!updated) throw new Error("未找到该注册申请");
+  return sanitizeUser(updated);
 }
 
 export async function getCurrentUser() {
@@ -115,7 +172,7 @@ export async function logout() {
 
 export const demoAccounts = seedUsers.map((user) => ({
   account: user.account,
-  password: "123456",
+  password: user.password,
   role: user.role,
   roleLabel: roleLabels[user.role],
 }));

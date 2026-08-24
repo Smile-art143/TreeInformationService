@@ -6,6 +6,14 @@ export const roleLabels = {
   visitor: "游客",
   inspector: "巡检人员",
   maintenance: "养护人员",
+  admin: "管理员",
+};
+
+// 账号审核状态：待审核 / 已启用 / 已驳回
+export const approvalStatusLabels = {
+  pending: "待审核",
+  approved: "已启用",
+  rejected: "已驳回",
 };
 
 export const statusLabels = {

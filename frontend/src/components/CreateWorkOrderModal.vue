@@ -103,6 +103,7 @@ function handleSubmit() {
   <a-modal
     :open="open"
     :width="640"
+    wrap-class-name="mobile-work-order-modal"
     title="创建正式工单"
     :footer="null"
     :mask-closable="false"

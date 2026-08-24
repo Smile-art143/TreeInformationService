@@ -49,6 +49,8 @@ const createForm = ref({
   healthStatus: "problem",
 });
 
+// 角色能力开关：仅巡检/养护拥有处置、复核与建单权限；
+// 管理员（admin）不命中任何能力，工单列表与详情 drawer 自动退化为只读展示。
 const canCreateOrder = computed(() => props.role === "inspector" || props.role === "maintenance");
 const canReview = computed(() => props.role === "inspector");
 const canTreat = computed(() => props.role === "maintenance");
@@ -423,7 +425,7 @@ const leadColumns = [
         </a-card>
       </a-tab-pane>
 
-      <a-tab-pane key="leads" :tab="`游客线索 ${visitorLeads.filter((lead) => lead.status === 'new').length}`">
+      <a-tab-pane v-if="role !== 'admin'" key="leads" :tab="`游客线索 ${visitorLeads.filter((lead) => lead.status === 'new').length}`">
         <a-card :bordered="false" class="table-card">
           <a-table row-key="id" :columns="leadColumns" :data-source="visitorLeads" :pagination="{ pageSize: 8 }" :scroll="{ x: 880 }">
             <template #bodyCell="{ column, record }">

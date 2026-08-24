@@ -4,89 +4,97 @@ import ArcGISMap from "@arcgis/core/Map";
 import MapView from "@arcgis/core/views/MapView";
 import Graphic from "@arcgis/core/Graphic";
 import GraphicsLayer from "@arcgis/core/layers/GraphicsLayer";
-import WebTileLayer from "@arcgis/core/layers/WebTileLayer";
 import Point from "@arcgis/core/geometry/Point";
 import Polygon from "@arcgis/core/geometry/Polygon";
 import Polyline from "@arcgis/core/geometry/Polyline";
 import SimpleMarkerSymbol from "@arcgis/core/symbols/SimpleMarkerSymbol";
+import PictureMarkerSymbol from "@arcgis/core/symbols/PictureMarkerSymbol";
 import SimpleFillSymbol from "@arcgis/core/symbols/SimpleFillSymbol";
 import SimpleLineSymbol from "@arcgis/core/symbols/SimpleLineSymbol";
 import { getDbhSize } from "../api/mockApi";
-
-
-
-
-// ============================================================
-// 天地图密钥 —— 请前往 https://console.tianditu.gov.cn/ 申请后填入
-// ============================================================
-const TIANDITU_KEY = "68e3b341681f835b6664c94010c6896a";
-
-// --------------------------------------------------
-// 使用 createSubclass 确保 LayerView 可被 ArcGIS 正常创建
-// --------------------------------------------------
-const ThrottledWebTileLayer = WebTileLayer.createSubclass({
-  constructor() {
-    this._pendingQueue = [];
-    this._activeCount = 0;
-    this._maxConcurrent = 6; // 最多 6 个并发瓦片请求
-  },
-
-  fetchTile(level, row, col, options) {
-    const self = this;
-    return new Promise((resolve) => {
-      const doFetch = () => {
-        self._activeCount++;
-        // 调用原始 WebTileLayer 的 fetchTile
-        const baseFetch = WebTileLayer.prototype.fetchTile.call(self, level, row, col, options);
-        baseFetch.then(
-          (tile) => {
-            self._activeCount--;
-            self._processQueue();
-            resolve(tile);
-          },
-          () => {
-            // 请求失败（含 429）→ 1-3s 随机延迟后重试
-            const delay = 1000 + Math.random() * 2000;
-            self._activeCount--;
-            setTimeout(() => {
-              self._processQueue();
-              self._enqueue(doFetch);
-            }, delay);
-          }
-        );
-      };
-      self._enqueue(doFetch);
-    });
-  },
-
-  _enqueue(fn) {
-    if (this._activeCount < this._maxConcurrent) {
-      fn();
-    } else {
-      this._pendingQueue.push(fn);
-    }
-  },
-
-  _processQueue() {
-    while (this._activeCount < this._maxConcurrent && this._pendingQueue.length) {
-      this._pendingQueue.shift()();
-    }
-  },
-});
+import { createTiandituBaseLayers } from "../map/tiandituLayers";
 
 const props = defineProps({
   trees: { type: Array, default: () => [] },
   selectedTree: { type: Object, default: null },
   speciesColors: { type: Object, default: () => ({}) },
+  highlightedTreeIds: { type: Array, default: () => [] },
+  photoSpots: { type: Array, default: () => [] },
+  selectedPhotoSpotIds: { type: Array, default: () => [] },
+  photoSpotDestinationId: { type: [String, Number], default: null },
+  compact: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["treeSelect", "mapClick"]);
+const emit = defineEmits(["treeSelect", "mapClick", "photoSpotSelect"]);
 
 const containerRef = ref(null);
 const viewRef = shallowRef(null);
 const layerRef = shallowRef(null);
+const photoSpotLayerRef = shallowRef(null);
 const overlayLayerRef = shallowRef(null);
+const routeNodesRef = ref([]);
 const treesRef = ref([...props.trees]);
+
+function createRouteNodeSymbol(type, label = "") {
+  const size = props.compact ? 22 : 30;
+  let content = "";
+  if (type === "start") {
+    content = `
+      <rect x="4" y="4" width="28" height="28" rx="7" fill="#507f2c" stroke="#ffffff" stroke-width="3"/>
+      <path d="M11 24.5 16.2 10l3.1 6.2 6.7 3.2-15 5.1Z" fill="#ffffff" stroke="#ffffff" stroke-linejoin="round"/>
+    `;
+  } else if (type === "destination") {
+    content = `
+      <rect x="4" y="4" width="28" height="28" rx="7" fill="#8f1f24" stroke="#ffffff" stroke-width="3"/>
+      <path d="M13 26V10m1 1h10l-2.5 4 2.5 4H14" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    `;
+  } else {
+    const safeLabel = String(label || "•").replace(/[^0-9]/g, "").slice(0, 2) || "•";
+    content = `
+      <rect x="4" y="4" width="28" height="28" rx="7" fill="#ffffff" stroke="#ffffff" stroke-width="4"/>
+      <rect x="6" y="6" width="24" height="24" rx="5" fill="#ffffff" stroke="#8f1f24" stroke-width="2.5"/>
+      <text x="18" y="22.5" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" font-weight="700" fill="#8f1f24">${safeLabel}</text>
+    `;
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">${content}</svg>`;
+  return new PictureMarkerSymbol({
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    width: size,
+    height: size,
+  });
+}
+
+function renderRouteNodes() {
+  const layer = overlayLayerRef.value;
+  if (!layer) return;
+  const oldRouteNodes = layer.graphics.toArray().filter((graphic) =>
+    graphic.attributes?.type === "route-node-marker" || graphic.attributes?.type === "route-node-group"
+  );
+  if (oldRouteNodes.length) layer.removeMany(oldRouteNodes);
+  const nodes = routeNodesRef.value;
+  if (!nodes.length) return;
+
+  const start = nodes.find((node) => node.type === "start");
+  const destination = nodes.find((node) => node.type === "destination");
+
+  const graphics = [];
+  if (start) {
+    graphics.push(new Graphic({
+      geometry: new Point({ longitude: start.lng, latitude: start.lat }),
+      symbol: createRouteNodeSymbol("start"),
+      attributes: { type: "route-node-marker", nodeType: "start" },
+    }));
+  }
+
+  if (destination) {
+    graphics.push(new Graphic({
+      geometry: new Point({ longitude: destination.lng, latitude: destination.lat }),
+      symbol: createRouteNodeSymbol("destination"),
+      attributes: { type: "route-node-marker", nodeType: "destination" },
+    }));
+  }
+  layer.addMany(graphics);
+}
 
 // Keep treesRef in sync
 watch(() => props.trees, (val) => {
@@ -98,24 +106,13 @@ onMounted(() => {
   if (!containerRef.value || viewRef.value) return;
 
   const treeLayer = new GraphicsLayer({ title: "树木点位" });
+  const photoSpotLayer = new GraphicsLayer({ title: "拍照机位" });
   const overlayLayer = new GraphicsLayer({ title: "巡检覆盖层" });
 
-  // 天地图矢量底图（限流 + 自动重试）
-  const vecLayer = new ThrottledWebTileLayer({
-    title: "天地图矢量底图",
-    urlTemplate: `https://{subDomain}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={level}&TILEROW={row}&TILECOL={col}&tk=${TIANDITU_KEY}`,
-    subDomains: ["t0", "t1", "t2", "t3"],
-  });
-
-  // 天地图矢量注记——中文标注（限流 + 自动重试）
-  const cvaLayer = new ThrottledWebTileLayer({
-    title: "天地图矢量注记",
-    urlTemplate: `https://{subDomain}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={level}&TILEROW={row}&TILECOL={col}&tk=${TIANDITU_KEY}`,
-    subDomains: ["t0", "t1", "t2", "t3"],
-  });
+  const [vecLayer, cvaLayer] = createTiandituBaseLayers();
 
   const map = new ArcGISMap({
-    layers: [vecLayer, cvaLayer, treeLayer, overlayLayer],
+    layers: [vecLayer, cvaLayer, treeLayer, photoSpotLayer, overlayLayer],
   });
 
   const view = new MapView({
@@ -125,7 +122,7 @@ onMounted(() => {
     zoom: 18,
     constraints: {
       minZoom: 14,
-      maxZoom: 19,
+      maxZoom: 18,
     },
     popupEnabled: false,
   });
@@ -133,10 +130,26 @@ onMounted(() => {
   view.ui.move("zoom", "bottom-right");
   viewRef.value = markRaw(view);
   layerRef.value = markRaw(treeLayer);
+  photoSpotLayerRef.value = markRaw(photoSpotLayer);
   overlayLayerRef.value = markRaw(overlayLayer);
+
+  // Draw the initial tree / photo-spot points right away, so the basemap
+  // shows all points on entry instead of waiting for a filter/select change.
+  renderTrees();
+  renderPhotoSpots();
 
   const clickHandle = view.on("click", async (event) => {
     const response = await view.hitTest(event);
+    const photoSpotHit = response.results.find((item) => {
+      return "graphic" in item && item.graphic?.layer === photoSpotLayer;
+    });
+    if (photoSpotHit && "graphic" in photoSpotHit) {
+      const spotId = photoSpotHit.graphic.attributes?.photoSpotId;
+      const spot = props.photoSpots.find((item) => item.id === spotId);
+      if (spot) emit("photoSpotSelect", spot);
+      return;
+    }
+
     const hit = response.results.find((item) => {
       return "graphic" in item && item.graphic?.layer === treeLayer;
     });
@@ -160,46 +173,127 @@ onMounted(() => {
     view.destroy();
     viewRef.value = null;
     layerRef.value = null;
+    photoSpotLayerRef.value = null;
     overlayLayerRef.value = null;
+    routeNodesRef.value = [];
   });
 });
 
-// Update graphics when trees/filters change
-watch(
-  () => [props.trees, props.selectedTree, props.speciesColors],
-  () => {
-    const layer = layerRef.value;
-    if (!layer) return;
+// Render tree point graphics onto the tree layer
+function renderTrees() {
+  const layer = layerRef.value;
+  if (!layer) return;
 
-    layer.removeAll();
-    const graphics = props.trees.map((tree) => {
-      const isSelected = props.selectedTree?.id === tree.id;
-      const symbol = new SimpleMarkerSymbol({
-        style: "circle",
-        color: props.speciesColors[tree.species] ?? "#4B7F52",
-        size: getDbhSize(tree.dbh) + (isSelected ? 5 : 0),
-        outline: {
-          color: isSelected ? "#17251A" : "#ffffff",
-          width: isSelected ? 2.5 : 1,
-        },
-      });
-
-      return new Graphic({
-        geometry: new Point({
-          longitude: tree.longitude,
-          latitude: tree.latitude,
-        }),
-        symbol,
-        attributes: {
-          treeId: tree.id,
-          species: tree.species,
-          dbh: tree.dbh,
-        },
-      });
+  layer.removeAll();
+  const graphics = props.trees.map((tree) => {
+    const isSelected = props.selectedTree?.id === tree.id;
+    const isHighlighted = props.highlightedTreeIds.includes(tree.id);
+    const baseSize = getDbhSize(tree.dbh);
+    const markerSize = props.compact ? Math.max(5, Math.round(baseSize * 0.68)) : baseSize;
+    const symbol = new SimpleMarkerSymbol({
+      style: "circle",
+      color: props.speciesColors[tree.species] ?? "#4B7F52",
+      size: markerSize + (isSelected ? 7 : 0) + (isHighlighted ? (props.compact ? 1 : 4) : 0),
+      outline: {
+        color: isSelected ? "#F2B134" : isHighlighted ? "#17251A" : "#ffffff",
+        width: isSelected ? 3 : isHighlighted ? (props.compact ? 1.5 : 2) : 1,
+      },
     });
 
-    layer.addMany(graphics);
-  },
+    return new Graphic({
+      geometry: new Point({
+        longitude: tree.longitude,
+        latitude: tree.latitude,
+      }),
+      symbol,
+      attributes: {
+        treeId: tree.id,
+        species: tree.species,
+        dbh: tree.dbh,
+      },
+    });
+  });
+
+  layer.addMany(graphics);
+}
+
+// Render photo spot markers onto the photo spot layer
+function renderPhotoSpots() {
+  const layer = photoSpotLayerRef.value;
+  if (!layer) return;
+
+  layer.removeAll();
+  const graphics = props.photoSpots.flatMap((spot) => {
+    const isSelected = props.selectedPhotoSpotIds.includes(spot.id);
+    const isDestination = props.photoSpotDestinationId === spot.id;
+    if (isSelected || isDestination) {
+      const selectedIndex = props.selectedPhotoSpotIds.indexOf(spot.id) + 1;
+      return [new Graphic({
+        geometry: new Point({
+          longitude: spot.longitude,
+          latitude: spot.latitude,
+        }),
+        symbol: createRouteNodeSymbol(isDestination ? "destination" : "waypoint", selectedIndex),
+        attributes: {
+          photoSpotId: spot.id,
+          name: spot.name,
+          type: isDestination ? "photo-spot-destination" : "photo-spot-waypoint",
+        },
+      })];
+    }
+    const color = isSelected ? [242, 177, 52, 1] : [230, 106, 44, 0.95];
+    const size = props.compact ? (isSelected ? 13 : 10) : (isSelected ? 20 : 16);
+    return [
+      new Graphic({
+        geometry: new Point({
+          longitude: spot.longitude,
+          latitude: spot.latitude,
+        }),
+        symbol: new SimpleMarkerSymbol({
+          style: "diamond",
+          color,
+          size,
+          outline: { color: "#ffffff", width: props.compact ? 1.5 : (isSelected ? 3 : 2) },
+        }),
+        attributes: {
+          photoSpotId: spot.id,
+          name: spot.name,
+          type: "photo-spot",
+        },
+      }),
+      new Graphic({
+        geometry: new Point({
+          longitude: spot.longitude,
+          latitude: spot.latitude,
+        }),
+        symbol: new SimpleMarkerSymbol({
+          style: "circle",
+          color: [255, 255, 255, 1],
+          size: props.compact ? (isSelected ? 4 : 3) : (isSelected ? 7 : 5),
+        }),
+        attributes: {
+          photoSpotId: spot.id,
+          name: spot.name,
+          type: "photo-spot-core",
+        },
+      }),
+    ];
+  });
+
+  layer.addMany(graphics);
+}
+
+// Update graphics when trees/filters change
+watch(
+  () => [props.trees, props.selectedTree, props.speciesColors, props.highlightedTreeIds, props.compact],
+  renderTrees,
+  { deep: true }
+);
+
+// Update photo spot markers
+watch(
+  () => [props.photoSpots, props.selectedPhotoSpotIds, props.photoSpotDestinationId, props.compact],
+  renderPhotoSpots,
   { deep: true }
 );
 
@@ -250,6 +344,19 @@ defineExpose({
   showLocationMarker(lat, lng) {
     const layer = overlayLayerRef.value;
     if (!layer) return;
+    if (props.compact) {
+      layer.add(new Graphic({
+        geometry: new Point({ longitude: lng, latitude: lat }),
+        symbol: new SimpleMarkerSymbol({
+          style: "circle",
+          color: [80, 128, 44, 1],
+          size: 11,
+          outline: { color: [255, 255, 255, 1], width: 2 },
+        }),
+        attributes: { type: "location-marker" },
+      }));
+      return;
+    }
     // White outer ring with blue border
     layer.add(new Graphic({
       geometry: new Point({ longitude: lng, latitude: lat }),
@@ -271,6 +378,26 @@ defineExpose({
       }),
       attributes: { type: "location-marker" },
     }));
+  },
+  showRouteNodeMarker(lat, lng, nodeType, label = "") {
+    const layer = overlayLayerRef.value;
+    if (!layer) return;
+    layer.add(new Graphic({
+      geometry: new Point({ longitude: lng, latitude: lat }),
+      symbol: createRouteNodeSymbol(nodeType, label),
+      attributes: { type: "route-node-marker", nodeType, label },
+    }));
+  },
+  showRouteNodes(nodes) {
+    routeNodesRef.value = Array.isArray(nodes)
+      ? nodes.map((node) => ({
+        ...node,
+        lat: Number(node.lat),
+        lng: Number(node.lng),
+        label: String(node.label || ""),
+      }))
+      : [];
+    renderRouteNodes();
   },
   showRadiusCircle(lat, lng, radiusM) {
     const layer = overlayLayerRef.value;
@@ -308,8 +435,8 @@ defineExpose({
   },
   clearCustomOverlays() {
     const layer = overlayLayerRef.value;
-    if (!layer) return;
-    layer.removeAll();
+    layer?.removeAll();
+    routeNodesRef.value = [];
   },
   showPendingTreeMarkers(pendingTrees, statusType) {
     const layer = overlayLayerRef.value;
@@ -336,6 +463,41 @@ defineExpose({
   showTargetMarker(lat, lng, statusType, dbh) {
     const layer = overlayLayerRef.value;
     if (!layer) return;
+    if (props.compact) {
+      const isDestination = statusType === "destination";
+      const isWaypoint = statusType === "waypoint" || statusType === "picked-waypoint";
+      const isWorkOrder = statusType === "processing" || statusType === "reviewing";
+      const color = isDestination
+        ? [143, 31, 36, 1]
+        : isWaypoint
+          ? [80, 128, 44, 0.92]
+          : statusType === "processing"
+            ? [214, 98, 38, 1]
+            : [113, 61, 143, 1];
+      if (isWorkOrder) {
+        layer.add(new Graphic({
+          geometry: new Point({ longitude: lng, latitude: lat }),
+          symbol: new SimpleMarkerSymbol({
+            style: "circle",
+            color: [242, 177, 52, 0.2],
+            size: 23,
+            outline: { color: [242, 177, 52, 0.95], width: 2 },
+          }),
+          attributes: { type: "target-marker-halo", statusType },
+        }));
+      }
+      layer.add(new Graphic({
+        geometry: new Point({ longitude: lng, latitude: lat }),
+        symbol: new SimpleMarkerSymbol({
+          style: isDestination ? "diamond" : "circle",
+          color,
+          size: isWorkOrder ? 14 : isDestination ? 12 : 6,
+          outline: { color: [255, 255, 255, 1], width: isWaypoint ? 1 : 2 },
+        }),
+        attributes: { type: "target-marker", statusType },
+      }));
+      return;
+    }
     const isProcessing = statusType === "processing";
     const color = isProcessing ? [255, 100, 0, 1] : [140, 30, 255, 1];
     const size = (dbh ? getDbhSize(dbh) : 14) + 16;
@@ -371,10 +533,28 @@ defineExpose({
       }),
       symbol: new SimpleLineSymbol({
         color: [22, 119, 255, 0.8],
-        width: 3,
+        width: props.compact ? 2 : 3,
         style: "dash",
       }),
       attributes: { type: "navigation-line" },
+    }));
+  },
+  showRoutePolyline(points) {
+    const layer = overlayLayerRef.value;
+    if (!layer || !points || points.length < 2) return;
+    layer.add(new Graphic({
+      geometry: new Polyline({
+        paths: [points],
+        spatialReference: { wkid: 4326 },
+      }),
+      symbol: new SimpleLineSymbol({
+        color: [22, 119, 255, 0.9],
+        width: props.compact ? 3 : 5,
+        style: "solid",
+        cap: "round",
+        join: "round",
+      }),
+      attributes: { type: "amap-route" },
     }));
   },
 });

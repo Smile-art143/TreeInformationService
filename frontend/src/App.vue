@@ -24,7 +24,7 @@ const route = useRoute();
 
 // ---- state (was useState) ----
 const isAuthenticated = ref(false);
-const role = ref("inspector");
+const role = ref("admin");
 const organizationName = ref("大兴善寺");
 const currentUser = ref(null);
 const page = ref("map");
@@ -111,13 +111,26 @@ const roleOptions = computed(() => [
 
 const speciesColors = computed(() => getSpeciesColorMap(trees.value));
 
-const navOptions = computed(() => [
-  { label: isEnglish.value ? "Map" : "地图", value: "map" },
-
-  { label: isEnglish.value ? "Work Orders" : "工单", value: "workbench", disabled: role.value === "visitor" },
-  { label: isEnglish.value ? "Guide" : "导览", value: "guide" },
-  { label: isEnglish.value ? "Routes" : "路线", value: "routes" },
-]);
+const navOptions = computed(() => {
+  const ecoOption = {
+    label: isEnglish.value ? "Eco Value" : "生态价值",
+    value: "eco",
+  };
+  if (role.value === "admin") {
+    return [
+      { label: isEnglish.value ? "Map" : "地图", value: "map" },
+      ecoOption,
+      { label: isEnglish.value ? "Work Orders" : "工单", value: "workbench" },
+      { label: isEnglish.value ? "Review" : "审核", value: "review" },
+    ];
+  }
+  return [
+    { label: isEnglish.value ? "Map" : "地图", value: "map" },
+    ...(role.value === "visitor" ? [] : [ecoOption]),
+    { label: isEnglish.value ? "Work Orders" : "工单", value: "workbench", disabled: role.value === "visitor" },
+    { label: isEnglish.value ? "Guide" : "导览", value: "guide" },
+  ];
+});
 
 const filteredTrees = computed(() => {
   return trees.value.filter((tree) => {
@@ -159,8 +172,17 @@ const isMobileRoute = computed(() => route.path.startsWith("/mobile"));
 // ---- sync route with page state ----
 watch(() => route.path, (path) => {
   const pageName = path.replace("/", "") || "map";
-  if (["map", "workbench", "guide", "routes"].includes(pageName)) {
+  if (["map", "eco", "workbench", "guide", "review"].includes(pageName)) {
     page.value = pageName;
+  }
+});
+
+watch([isMobileRoute, role, isAuthenticated], ([mobileRoute, currentRole, authenticated]) => {
+  if (!authenticated) return;
+  if (mobileRoute && currentRole === "admin") {
+    router.replace("/map");
+  } else if (!mobileRoute && currentRole !== "admin") {
+    router.replace("/mobile/map");
   }
 });
 
@@ -171,7 +193,8 @@ const updateTree = (nextTree) => {
 };
 
 const addTree = (treeData) => {
-  const nextCode = computeNextTreeCode(trees.value);
+  const customCode = String(treeData.code || treeData.id || "").trim();
+  const nextCode = customCode || computeNextTreeCode(trees.value);
   const newTree = {
     id: nextCode,
     code: nextCode,
@@ -314,6 +337,12 @@ watch([page, role], ([newPage, newRole]) => {
   if (newRole === "visitor" && newPage === "workbench") {
     router.push("/map");
   }
+  if (newRole === "admin" && newPage === "guide") {
+    router.push("/map");
+  }
+  if (newRole !== "admin" && newPage === "review") {
+    router.push("/map");
+  }
 });
 
 // ---- resize handler ----
@@ -369,7 +398,7 @@ const handleLogout = async () => {
   currentUser.value = null;
   currentUserName.value = "游客";
   isAuthenticated.value = false;
-  role.value = "inspector";
+  role.value = shouldStayMobile ? "inspector" : "admin";
   organizationName.value = "大兴善寺";
   selectedTree.value = null;
   selectedOrder.value = null;
@@ -510,8 +539,9 @@ provide("appState", {
           @change="navigateTo"
         />
         <div class="role-switcher">
-          <span class="role-label">{{ isEnglish ? 'Role' : '当前身份' }}</span>
+          <span class="role-label">{{ role === 'admin' ? (isEnglish ? 'Admin Console' : '管理后台') : (isEnglish ? 'Role' : '当前身份') }}</span>
           <a-segmented
+            v-if="role !== 'admin'"
             :value="role"
             :options="roleOptions"
             @change="(val) => { role = val; organizationName = val === 'visitor' ? '公众访问' : organizationName === '公众访问' ? '大兴善寺' : organizationName; }"
@@ -528,7 +558,7 @@ provide("appState", {
     </header>
 
     <!-- Page Content -->
-    <a-layout-content :class="page === 'map' ? 'map-content' : 'page-content'">
+    <a-layout-content :class="['map', 'eco'].includes(page) ? 'map-content' : 'page-content'">
       <router-view />
     </a-layout-content>
 
@@ -536,7 +566,7 @@ provide("appState", {
     <TreeDetailDrawer
       :tree="selectedTree"
       :role="role"
-      :open="Boolean(selectedTree) && !(page === 'guide' && role !== 'visitor')"
+      :open="Boolean(selectedTree) && !(page === 'guide' && role !== 'visitor') && page !== 'eco'"
       @close="selectedTree = null"
       @create-visitor-lead="createVisitorLead"
       @update-tree="updateTree"

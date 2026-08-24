@@ -1,11 +1,12 @@
 <script setup>
 import { computed, inject, ref, watch } from "vue";
 import { message } from "ant-design-vue";
-import { Leaf, BookOpen, CalendarDays, Users, Search, X } from "lucide-vue-next";
+import { ChevronLeft, ChevronRight, Leaf, BookOpen, CalendarDays, Users, Search, X } from "lucide-vue-next";
 import ArcGISTreeMap from "../components/ArcGISTreeMap.vue";
 import FilterPanel from "../components/FilterPanel.vue";
 import StatsPanel from "../components/StatsPanel.vue";
 import { computeNextTreeCode, roleLabels } from "../api/mockApi";
+import { exportTreesAsShp } from "../api/shpExport";
 
 const app = inject("appState");
 
@@ -52,8 +53,26 @@ const onDbhRangeChange = (val) => setDbhRange(val);
 const onHealthChange = (val) => setHealthFilter(val);
 const onReset = () => resetMapFilters();
 
+// ---- 导出树木点位 SHP ----
+const handleExportShp = () => {
+  try {
+    exportTreesAsShp(trees.value);
+    message.success("已导出树木点位 SHP 数据");
+  } catch (error) {
+    message.error(error.message || "导出失败");
+  }
+};
+
 // ---- stats modal ----
 const showStatsModal = ref(false);
+const MAP_RIGHT_PANEL_KEY = "xian-map-right-panel-collapsed";
+const rightPanelCollapsed = ref(
+  window.localStorage.getItem(MAP_RIGHT_PANEL_KEY) === "true"
+);
+
+watch(rightPanelCollapsed, (collapsed) => {
+  window.localStorage.setItem(MAP_RIGHT_PANEL_KEY, String(collapsed));
+});
 
 const openStatsModal = () => {
   showStatsModal.value = true;
@@ -197,7 +216,8 @@ watch(() => addTreeForm.value.treeType, (val) => {
       <a-space wrap class="home-links">
         <a-button type="link" @click="openStatsModal">查看树木统计</a-button>
         <a-button v-if="role !== 'visitor'" type="link" @click="navigateTo('workbench')">进入工单处理</a-button>
-        <a-button v-if="role !== 'visitor'" type="link" @click="openAddTreeDrawer">添加树木</a-button>
+        <a-button v-if="role === 'admin'" type="link" @click="handleExportShp">导出树木shp数据</a-button>
+        <a-button v-if="role === 'inspector' || role === 'maintenance'" type="link" @click="openAddTreeDrawer">添加树木</a-button>
       </a-space>
     </section>
 
@@ -244,21 +264,10 @@ watch(() => addTreeForm.value.treeType, (val) => {
     </section>
 
  <!-- Split Actions -->
-    <section class="home-section split-actions">
-      <div>
-        <h2>Learn</h2>
-        <p>查看树种图鉴、季节提示和游客打卡入口。</p>
-        <a-button type="link" @click="navigateTo('guide')"><BookOpen :size="16" />导览学习</a-button>
-      </div>
-      <div>
-        <h2>Find Routes</h2>
-        <p>按拍照、秋季观赏和巡检任务查看推荐路线。</p>
-        <a-button type="link" @click="navigateTo('routes')"><CalendarDays :size="16" />路线推荐</a-button>
-      </div>
-    </section>
+
 
     <!-- 生态效益估算 -->
-    <section class="home-section eco-section">
+    <section v-if="role !== 'admin'" class="home-section eco-section">
       <h2>生态效益</h2>
       <div class="eco-stat-grid">
         <div class="eco-stat-card">
@@ -284,7 +293,7 @@ watch(() => addTreeForm.value.treeType, (val) => {
    
 
     <!-- Role Note -->
-    <section class="home-section role-note">
+    <section v-if="role !== 'admin'" class="home-section role-note">
       <Users :size="18" />
       <span>
         <template v-if="role === 'visitor'">游客可查看树木详情、浏览导览路线并提交游客线索。</template>
@@ -295,10 +304,19 @@ watch(() => addTreeForm.value.treeType, (val) => {
   </div>
 
   <!-- Map Tool Panel (right sidebar) -->
-  <div class="map-tool-panel">
+  <div class="map-tool-panel" :class="{ 'is-collapsed': rightPanelCollapsed }">
     <div class="tool-panel-title">
       <Search :size="17" />
       <span>Find A Tree</span>
+      <button
+        type="button"
+        class="panel-collapse-button"
+        aria-label="收起右侧筛选栏"
+        title="收起筛选栏"
+        @click="rightPanelCollapsed = true"
+      >
+        <ChevronRight :size="18" />
+      </button>
     </div>
     <a-auto-complete
       class="tree-search"
@@ -321,6 +339,17 @@ watch(() => addTreeForm.value.treeType, (val) => {
       @reset="onReset"
     />
   </div>
+
+  <button
+    v-if="rightPanelCollapsed"
+    type="button"
+    class="right-panel-restore map-panel-restore"
+    aria-label="展开右侧筛选栏"
+    @click="rightPanelCollapsed = false"
+  >
+    <ChevronLeft :size="17" />
+    <span>筛选</span>
+  </button>
 
   <!-- Map Key -->
   <div class="map-key" :style="{ left: (homePanelWidth + 64) + 'px' }">

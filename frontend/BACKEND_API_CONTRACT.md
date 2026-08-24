@@ -1,4 +1,4 @@
-# 后端接口统一对接说明（后端负责人版）
+# 后端接口统一对接说明
 
 ## 1. 文档说明
 
@@ -315,12 +315,33 @@ reviewing --巡检复核退回-->     -> processing        （同上，reviewRes
 | role | enum | 是 | `visitor/inspector/maintenance` |
 | organizationId | enum | 巡检/养护必填 | 仅允许 `daxingshansi` 或 `tangdacien-temple-park` |
 
-- 返回：`data` 为 `User精简版`。
+- 返回：`data` 为 `User精简版`，必须包含 `approvalStatus` 字段；巡检/养护注册成功返回 `pending`，前端据此弹出“注册成功，请等待管理员审核”；游客注册成功返回 `approved`，可直接登录。
 - 后端职责：
   - 游客直接 `approved`；巡检/养护默认 `pending`。
   - 账号在当前角色下已存在返回 `40901`。
   - 巡检/养护未选择单位或选择 `public` 返回 `40003`。
   - 缺少 `username` 返回 `40001`。
+
+巡检/养护注册成功响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "id": "user-10001",
+    "username": "巡检员小王",
+    "account": "inspector",
+    "role": "inspector",
+    "organizationId": "daxingshansi",
+    "organizationName": "大兴善寺",
+    "approvalStatus": "pending",
+    "createdAt": "2026-07-28 10:00:00"
+  }
+}
+```
+
+游客注册成功时，`data.approvalStatus` 返回 `approved`，其余字段结构一致。
 
 #### 4.1.2 用户登录
 
