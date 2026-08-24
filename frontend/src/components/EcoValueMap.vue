@@ -166,7 +166,7 @@ onMounted(() => {
     zoom: 16,
     constraints: {
       minZoom: 14,
-      maxZoom: 19,
+      maxZoom: 18,
     },
     popupEnabled: false,
   });
