@@ -779,9 +779,7 @@ function getCenter(points) {
                 >
                   <Navigation :size="14" />开始导航
                 </a-button>
-                <a-button class="mobile-danger-outline" :disabled="!destination" @click="clearDestination">
-                  <X :size="13" />清除终点
-                </a-button>
+              
               </div>
             </div>
           </template>

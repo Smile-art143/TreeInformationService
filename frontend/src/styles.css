@@ -69,6 +69,8 @@ button {
 .app-shell.text-large .control-label,
 .app-shell.text-large .map-key p,
 .app-shell.text-large .map-key-row,
+.app-shell.text-large .map-panel-key p,
+.app-shell.text-large .map-panel-key .map-key-row,
 .app-shell.text-large .role-label {
   font-size: 15px;
 }
@@ -766,10 +768,10 @@ button {
 .map-key {
   position: absolute;
   left: 560px;
-  bottom: 34px;
+  bottom: 20px;
   z-index: 12;
   width: 246px;
-  padding: 12px 14px;
+  padding: 8px 14px 10px;
   background: rgba(255, 255, 255, 0.97);
   border: 1px solid var(--nyc-border);
   color: var(--nyc-gray);
@@ -814,6 +816,42 @@ button {
 .size-dot.large {
   width: 17px;
   height: 17px;
+}
+
+.map-panel-key {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: #f8f8f8;
+  border: 1px solid var(--nyc-border);
+  border-radius: 0;
+}
+
+.map-panel-key .map-key-title {
+  margin-bottom: 6px;
+  color: var(--nyc-black);
+  font-weight: 700;
+}
+
+.map-panel-key p {
+  margin: 0 0 8px;
+  color: var(--nyc-gray);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.map-panel-key .map-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  color: var(--nyc-gray);
+  font-size: 13px;
+}
+
+.map-panel-key .map-key-row small {
+  margin-left: auto;
+  color: var(--nyc-gray);
+  font-size: 11px;
 }
 
 .page-content {
@@ -3530,7 +3568,7 @@ button {
   padding: 8px;
   border: 1px solid var(--nyc-border);
   border-radius: 0;
-  background: #ffffff;
+  background: var(--nyc-light-green);
   color: var(--nyc-black);
   display: grid;
   align-content: start;

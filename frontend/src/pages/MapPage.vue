@@ -317,6 +317,7 @@ watch(() => addTreeForm.value.treeType, (val) => {
       >
         <ChevronRight :size="18" />
       </button>
+
     </div>
     <a-auto-complete
       class="tree-search"
@@ -338,6 +339,16 @@ watch(() => addTreeForm.value.treeType, (val) => {
       @health-change="onHealthChange"
       @reset="onReset"
     />
+    
+  </div>
+
+  <!-- Map Key -->
+  <div class="map-key" :style="{ left: (homePanelWidth + 22) + 'px' }">
+    <div class="map-key-title">树种 / 胸径图例</div>
+    <p>颜色表示树种，点大小表示胸径。点击树木查看详情。</p>
+    <div class="map-key-row"><span class="size-dot small" /> 小胸径 <small>&lt; 30 cm</small></div>
+    <div class="map-key-row"><span class="size-dot medium" /> 中胸径 <small>30 – 50 cm</small></div>
+    <div class="map-key-row"><span class="size-dot large" /> 大胸径 <small>≥ 50 cm</small></div>
   </div>
 
   <button
@@ -350,15 +361,6 @@ watch(() => addTreeForm.value.treeType, (val) => {
     <ChevronLeft :size="17" />
     <span>筛选</span>
   </button>
-
-  <!-- Map Key -->
-  <div class="map-key" :style="{ left: (homePanelWidth + 64) + 'px' }">
-    <div class="map-key-title">树种 / 胸径图例</div>
-    <p>颜色表示树种，点大小表示胸径。点击树木查看详情。</p>
-    <div class="map-key-row"><span class="size-dot small" /> 小胸径</div>
-    <div class="map-key-row"><span class="size-dot medium" /> 中胸径</div>
-    <div class="map-key-row"><span class="size-dot large" /> 大胸径</div>
-  </div>
 
   <!-- Stats Modal -->
   <Teleport to="body">
