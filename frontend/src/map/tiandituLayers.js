@@ -13,8 +13,11 @@ const ThrottledWebTileLayer = WebTileLayer.createSubclass({
 
   fetchTile(level, row, col, options) {
     const self = this;
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      let attempts = 0;
+      const maxAttempts = 3;
       const doFetch = () => {
+        attempts++;
         self._activeCount++;
         // 调用原始 WebTileLayer 的 fetchTile
         const baseFetch = WebTileLayer.prototype.fetchTile.call(self, level, row, col, options);
@@ -24,14 +27,19 @@ const ThrottledWebTileLayer = WebTileLayer.createSubclass({
             self._processQueue();
             resolve(tile);
           },
-          () => {
-            // 请求失败（含 429）→ 1-3s 随机延迟后重试
-            const delay = 1000 + Math.random() * 2000;
+          (error) => {
             self._activeCount--;
-            setTimeout(() => {
+            // 请求失败（含 429）→ 有限重试，最终失败时 reject，交给 ArcGIS 降级为空白瓦片
+            if (attempts < maxAttempts) {
+              const delay = 1000 + Math.random() * 2000;
+              setTimeout(() => {
+                self._processQueue();
+                self._enqueue(doFetch);
+              }, delay);
+            } else {
               self._processQueue();
-              self._enqueue(doFetch);
-            }, delay);
+              reject(error);
+            }
           }
         );
       };

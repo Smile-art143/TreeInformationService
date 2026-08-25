@@ -11,6 +11,15 @@ const TOTAL_VALUE_METRICS = ECO_BENEFIT_METRICS.filter(
   (metric) => metric.includedInTotal !== false
 );
 
+const YUAN_FIELD_MAP = {
+  carbonStorage: "carbonStorageYuan",
+  carbonSequestration: "carbonSequestrationYuan",
+  oxygenProduction: "oxygenProductionYuan",
+  stormwaterIntercepted: "stormwaterInterceptionYuan",
+  airPollutionRemoved: "airPurificationYuan",
+  energySaved: "energySavingYuan",
+};
+
 function emptyBenefits() {
   const result = { totalValueYuan: 0 };
   ECO_BENEFIT_METRICS.forEach((metric) => {
@@ -48,11 +57,13 @@ function roundMetric(value) {
   return Number(value.toFixed(2));
 }
 
-// 替换点：生态效益接口就绪后，将本函数替换为按 treeId 查询真实数据。
-// 当前 mock 以 DX-221 的既有样例为基准，按胸径等属性生成稳定的全树演示值。
-export function mockTreeEcoBenefits(tree) {
+// 以 DX-221 基准按胸径/健康/古树/树种稳定缩放，得到单棵树的 mock 演示值；
+// 当真实数据缺失时用它补齐六项实物量与货币价值。
+function computeMockBreakdown(tree) {
   const dbh = Number(tree?.dbh);
-  if (!tree || !Number.isFinite(dbh) || dbh <= 0) return emptyBenefits();
+  if (!tree || !Number.isFinite(dbh) || dbh <= 0) {
+    return { physical: {}, monetary: {}, totalValueYuan: 0 };
+  }
 
   const isBaselineTree = tree.id === "DX-221" || tree.code === "DX-221";
   const healthFactor = tree.healthStatus === "problem"
@@ -64,42 +75,67 @@ export function mockTreeEcoBenefits(tree) {
     ? 1
     : Math.pow(dbh / BASE_DBH, 1.35) * healthFactor * ancientFactor * speciesFactor;
 
-  const carbonStorage = roundMetric(BASELINE.carbonStorage * scale);
-  const carbonStorageValueYuan = roundMetric(BASELINE.carbonStorageValueYuan * scale);
-  const carbonSequestration = roundMetric(BASELINE.carbonSequestration * scale);
-  const carbonSequestrationValueYuan = roundMetric(BASELINE.carbonSequestrationValueYuan * scale);
-  const oxygenProduction = roundMetric(BASELINE.oxygenProduction * scale);
-  const oxygenProductionValueYuan = roundMetric(BASELINE.oxygenProductionValueYuan * scale);
-  const stormwaterIntercepted = roundMetric(BASELINE.stormwaterIntercepted * scale);
-  const stormwaterInterceptedValueYuan = roundMetric(BASELINE.stormwaterInterceptedValueYuan * scale);
-  const airPollutionRemoved = roundMetric(BASELINE.airPollutionRemoved * scale);
-  const airPollutionRemovedValueYuan = roundMetric(BASELINE.airPollutionRemovedValueYuan * scale);
-  const energySaved = roundMetric(BASELINE.energySaved * scale);
-  const energySavedValueYuan = roundMetric(BASELINE.energySavedValueYuan * scale);
-
-  const benefits = {
-    carbonStorage,
-    carbonStorageValueYuan,
-    carbonSequestration,
-    carbonSequestrationValueYuan,
-    oxygenProduction,
-    oxygenProductionValueYuan,
-    stormwaterIntercepted,
-    stormwaterInterceptedValueYuan,
-    airPollutionRemoved,
-    airPollutionRemovedValueYuan,
-    energySaved,
-    energySavedValueYuan,
-  };
-
-  // 碳储量的货币价值单列展示，不参与单树生态价值合计。
-  benefits.totalValueYuan = roundMetric(
-    TOTAL_VALUE_METRICS.reduce(
-      (total, metric) => total + benefits[`${metric.key}ValueYuan`],
-      0
-    )
+  const physical = {};
+  const monetary = {};
+  ECO_BENEFIT_METRICS.forEach((metric) => {
+    physical[metric.key] = roundMetric(BASELINE[metric.key] * scale);
+    monetary[metric.key] = roundMetric(BASELINE[`${metric.key}ValueYuan`] * scale);
+  });
+  const totalValueYuan = roundMetric(
+    TOTAL_VALUE_METRICS.reduce((total, metric) => total + monetary[metric.key], 0)
   );
-  return benefits;
+  return { physical, monetary, totalValueYuan };
+}
+
+// 单棵树六项生态效益：实物量取 tree.ecologicalBenefits，货币价值取 tree.eco；
+// 任一字段缺失时回退到 mock 演示值，避免点击树木后只有合计、其余为 0。
+export function mockTreeEcoBenefits(tree) {
+  const mock = computeMockBreakdown(tree);
+  const realPhysical = tree?.ecologicalBenefits || {};
+  const realEco = tree?.eco || {};
+
+  const result = {};
+  ECO_BENEFIT_METRICS.forEach((metric) => {
+    const physicalValue = realPhysical[metric.key];
+    result[metric.key] =
+      typeof physicalValue === "number" && Number.isFinite(physicalValue)
+        ? physicalValue
+        : (mock.physical[metric.key] ?? 0);
+
+    const monetaryValue = realEco[YUAN_FIELD_MAP[metric.key]];
+    result[`${metric.key}ValueYuan`] =
+      typeof monetaryValue === "number" && Number.isFinite(monetaryValue)
+        ? monetaryValue
+        : (mock.monetary[metric.key] ?? 0);
+  });
+
+  const realTotal = realEco.annualValueYuan;
+  if (typeof realTotal === "number" && Number.isFinite(realTotal)) {
+    // 有真实合计时，把“计入合计”的五项货币价值按比例缩放，使合计与真实值一致；
+    // 碳储量单列、不参与缩放与合计。
+    const includedSum = TOTAL_VALUE_METRICS.reduce(
+      (total, metric) => total + result[`${metric.key}ValueYuan`],
+      0
+    );
+    if (includedSum > 0) {
+      const factor = realTotal / includedSum;
+      TOTAL_VALUE_METRICS.forEach((metric) => {
+        result[`${metric.key}ValueYuan`] = roundMetric(
+          result[`${metric.key}ValueYuan`] * factor
+        );
+      });
+    }
+    result.totalValueYuan = roundMetric(realTotal);
+  } else {
+    result.totalValueYuan = roundMetric(
+      TOTAL_VALUE_METRICS.reduce(
+        (total, metric) => total + result[`${metric.key}ValueYuan`],
+        0
+      )
+    );
+  }
+
+  return result;
 }
 
 export function sumEcoBenefits(trees) {

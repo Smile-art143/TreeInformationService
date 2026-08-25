@@ -13,7 +13,7 @@ import MobileRoutesSection from "../components/MobileRoutesSection.vue";
 import {
   fetchNearbyTreesMock, healthLabels, healthOptions, issueTypes, leadStatusLabels, roleLabels, statusLabels
 } from "../api/mockApi";
-import { fetchAmapWalkingRoute, isAmapKeyConfigured } from "../api/amap";
+import { planTreeTaskRoute } from "../api/routePlanner";
 import { ECO_BENEFIT_METRICS, mockTreeEcoBenefits } from "../api/ecoBenefits";
 import { findMatchedPark } from "../data/parkZones";
 
@@ -110,6 +110,7 @@ const orderRoutePolyline = ref([]);
 const orderRouteMeters = ref(0);
 const orderRouteDuration = ref(0);
 const orderRouteUsingAmap = ref(false);
+const orderRouteSource = ref("straight");
 const orderRoutePlanning = ref(false);
 
 // 问题树木选择定位（养护 / 巡检）
@@ -778,6 +779,7 @@ function clearOrderRoute() {
   orderRouteMeters.value = 0;
   orderRouteDuration.value = 0;
   orderRouteUsingAmap.value = false;
+  orderRouteSource.value = "straight";
   mobileMapRef.value?.clearCustomOverlays();
 }
 
@@ -798,26 +800,27 @@ async function planOrderRoute() {
 
   map?.showLocationMarker(currentLocation.value.lat, currentLocation.value.lng);
 
-  if (!isAmapKeyConfigured()) {
-    map?.showNavigationLine(
-      currentLocation.value.lat, currentLocation.value.lng,
-      tree.latitude, tree.longitude
-    );
-    message.info("未配置高德 Key，已用直线示意");
-    return;
-  }
-
   orderRoutePlanning.value = true;
   try {
-    const route = await fetchAmapWalkingRoute(currentLocation.value, {
-      lat: tree.latitude,
-      lng: tree.longitude,
+    const result = await planTreeTaskRoute({
+      origin: currentLocation.value,
+      destination: tree,
+      park: tree.siteId,
     });
-    orderRoutePolyline.value = route.polyline;
-    orderRouteMeters.value = route.distanceMeters;
-    orderRouteDuration.value = route.durationSeconds;
-    orderRouteUsingAmap.value = true;
-    map?.showRoutePolyline(route.polyline);
+    orderRoutePolyline.value = result.polyline;
+    orderRouteMeters.value = result.totalMeters;
+    orderRouteDuration.value = result.durationSeconds;
+    orderRouteSource.value = result.source;
+    orderRouteUsingAmap.value = result.source === "amap";
+    if (result.source === "straight") {
+      map?.showNavigationLine(
+        currentLocation.value.lat, currentLocation.value.lng,
+        tree.latitude, tree.longitude
+      );
+      message.info("路线规划暂不可用，已用直线示意");
+    } else {
+      map?.showRoutePolyline(result.polyline);
+    }
     const centerLat = (Number(currentLocation.value.lat) + Number(tree.latitude)) / 2;
     const centerLng = (Number(currentLocation.value.lng) + Number(tree.longitude)) / 2;
     map?.flyTo(centerLat, centerLng, 17);
@@ -826,7 +829,8 @@ async function planOrderRoute() {
       currentLocation.value.lat, currentLocation.value.lng,
       tree.latitude, tree.longitude
     );
-    message.warning("高德路线规划失败，已用直线示意");
+    orderRouteSource.value = "straight";
+    message.warning("路线规划失败，已用直线示意");
   } finally {
     orderRoutePlanning.value = false;
   }
@@ -1105,7 +1109,7 @@ function submitReview(passed) {
         <div v-if="orderRouteMeters > 0" class="mobile-info-row">
           <span>路线</span>
           <strong>
-            {{ orderRouteUsingAmap ? '高德步行' : '直线示意' }}
+            {{ orderRouteSource === 'gp' ? 'GP路网' : orderRouteSource === 'amap' ? '高德步行' : '步行' }}
             {{ orderRouteMeters >= 1000 ? (orderRouteMeters / 1000).toFixed(1) + 'km' : Math.round(orderRouteMeters) + 'm' }}
             · 约 {{ orderRouteDurationMinutes }} 分钟
           </strong>
@@ -1232,7 +1236,7 @@ function submitReview(passed) {
             <strong>{{ guideAnchorLabel }}</strong>
           </div>
           <a-button size="small" @click="chooseGuideAnchorFromMap">
-            <MapPinned :size="14" />去地图选择
+            <MapPinned :size="14" />去地图定位
           </a-button>
         </div>
       </div>
@@ -1484,7 +1488,7 @@ function submitReview(passed) {
 
         <div v-if="role === 'maintenance' && activeOrder.status === 'processing'" class="mobile-card compact">
           <div class="mobile-card-title"><Wrench :size="17" />处置反馈</div>
-          <a-form layout="vertical" @finish="submitTreatment">
+          <a-form layout="vertical" :model="treatmentForm" @finish="submitTreatment">
             <a-form-item label="处置措施" required>
               <a-textarea v-model:value="treatmentForm.treatmentMeasures" :rows="4" />
             </a-form-item>

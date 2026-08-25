@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, provide, onUnmounted } from "vue";
+import { ref, computed, watch, provide, onMounted, onUnmounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import {
   Trees, MapPinned, BarChart3, ClipboardList, Compass, Route as RouteIcon,
@@ -13,10 +13,36 @@ import {
   createInitialVisitorLeads,
   createInitialWorkOrders,
   getSpeciesColorMap,
+  mockCheckInRecords,
   roleLabels,
   trees as initialTrees,
 } from "./api/mockApi";
 import { logout } from "./api/authApi";
+import { isMockMode } from "./api/http";
+import {
+  createTree,
+  fetchTrees,
+  updateTree as updateTreeRequest,
+} from "./api/treesApi";
+import {
+  createWorkOrder as createWorkOrderRequest,
+  fetchWorkOrders,
+  processWorkOrder,
+  reviewWorkOrder,
+} from "./api/workOrdersApi";
+import {
+  convertVisitorLead,
+  createVisitorLead as createVisitorLeadRequest,
+  deleteVisitorLead as deleteVisitorLeadRequest,
+  fetchVisitorLeads,
+  updateVisitorLead,
+} from "./api/visitorLeadsApi";
+import {
+  createCheckIn,
+  fetchCheckIns,
+  toggleCheckInLike,
+} from "./api/checkInsApi";
+import { fetchStatsOverview } from "./api/statsApi";
 
 const WORK_ORDERS_STORAGE_KEY = "xian-tree-work-orders";
 
@@ -48,58 +74,7 @@ const selectedTree = ref(null);
 const workOrders = ref(readStoredWorkOrders() ?? createInitialWorkOrders(initialTrees));
 const visitorLeads = ref(createInitialVisitorLeads(initialTrees));
 const selectedOrder = ref(null);
-const checkInRecords = ref([
-  {
-    id: "ci-demo-1",
-    treeId: "DX-1",
-    treeCode: "DX-1",
-    species: "松树",
-    photoUrl: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=400&q=80",
-    userName: "游客",
-    likedBy: ["游客", "巡检员小王"],
-    createdAt: "2026/8/5 14:30:00",
-  },
-  {
-    id: "ci-demo-2",
-    treeId: "DX-2",
-    treeCode: "DX-2",
-    species: "侧柏",
-    photoUrl: "https://images.unsplash.com/photo-1502082553048-f009c37129b9?auto=format&fit=crop&w=400&q=80",
-    userName: "游客",
-    likedBy: ["游客"],
-    createdAt: "2026/8/4 09:15:00",
-  },
-  {
-    id: "ci-demo-3",
-    treeId: "DX-1",
-    treeCode: "DX-1",
-    species: "松树",
-    photoUrl: "https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?auto=format&fit=crop&w=400&q=80",
-    userName: "巡检员小王",
-    likedBy: ["游客", "养护老李", "巡检员小王"],
-    createdAt: "2026/8/3 16:45:00",
-  },
-  {
-    id: "ci-demo-4",
-    treeId: "DX-2",
-    treeCode: "DX-2",
-    species: "侧柏",
-    photoUrl: "https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?auto=format&fit=crop&w=400&q=80",
-    userName: "养护老李",
-    likedBy: [],
-    createdAt: "2026/8/2 11:00:00",
-  },
-  {
-    id: "ci-demo-5",
-    treeId: "DX-1",
-    treeCode: "DX-1",
-    species: "松树",
-    photoUrl: "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=400&q=80",
-    userName: "游客",
-    likedBy: ["养护老李"],
-    createdAt: "2026/8/1 08:20:00",
-  },
-]);
+const checkInRecords = ref([...mockCheckInRecords]);
 const currentUserName = ref("游客");
 const textSize = ref("default");
 const homePanelWidth = ref(496);
@@ -164,7 +139,7 @@ const checkInLeaderboard = computed(() => {
 });
 const photoWallPhotos = computed(() => checkInRecords.value.filter((r) => r.photoUrl));
 
-const stats = computed(() => buildStats(trees.value));
+const stats = ref(buildStats(trees.value));
 
 const treeSearchOptions = computed(() =>
   trees.value.map((tree) => ({
@@ -185,6 +160,66 @@ function persistWorkOrders() {
   }
 }
 
+async function loadAppData() {
+  if (isMockMode()) return;
+  const currentRole = role.value;
+  const tasks = [
+    fetchTrees()
+      .then((list) => {
+        trees.value = list;
+      })
+      .catch(() => {
+        // 保留现有 mock 树作为离线兜底。
+      }),
+    fetchCheckIns()
+      .then((data) => {
+        checkInRecords.value = data.list;
+      })
+      .catch(() => {
+        // 保留 mock 打卡数据。
+      }),
+    fetchStatsOverview({}, trees.value)
+      .then((data) => {
+        stats.value = data;
+      })
+      .catch(() => {
+        stats.value = buildStats(trees.value);
+      }),
+  ];
+
+  if (currentRole === "inspector" || currentRole === "maintenance") {
+    tasks.push(
+      fetchWorkOrders({ page: 1, pageSize: 50, full: true })
+        .then((data) => {
+          workOrders.value = data.list;
+        })
+        .catch(() => {
+          // 后端不可用时保留 mock 工单。
+        }),
+      fetchVisitorLeads({ page: 1, pageSize: 50 })
+        .then((data) => {
+          visitorLeads.value = data.list;
+        })
+        .catch(() => {
+          // 后端不可用时保留 mock 线索。
+        })
+    );
+  }
+
+  await Promise.allSettled(tasks);
+}
+
+function resetToLogin() {
+  currentUser.value = null;
+  currentUserName.value = "游客";
+  isAuthenticated.value = false;
+  role.value = "admin";
+  organizationName.value = "大兴善寺";
+  selectedTree.value = null;
+  selectedOrder.value = null;
+  router.push("/map");
+}
+
 // ---- sync route with page state ----
 watch(() => route.path, (path) => {
   const pageName = path.replace("/", "") || "map";
@@ -203,12 +238,52 @@ watch([isMobileRoute, role, isAuthenticated], ([mobileRoute, currentRole, authen
 });
 
 // ---- actions ----
-const updateTree = (nextTree) => {
+const updateTree = async (nextTree) => {
+  if (!isMockMode()) {
+    try {
+      const rawPhotos =
+        Array.isArray(nextTree.photoList) && nextTree.photoList.length
+          ? nextTree.photoList
+          : Array.isArray(nextTree.photos)
+            ? nextTree.photos
+            : undefined;
+      const photos = Array.isArray(rawPhotos)
+        ? rawPhotos.map((photo) =>
+            typeof photo === "string"
+              ? { uid: `photo-${photo.slice(-16)}`, name: "树木照片", url: photo }
+              : photo
+          )
+        : undefined;
+      const updated = await updateTreeRequest(nextTree.code, {
+        species: nextTree.species,
+        dbh: nextTree.dbh,
+        story: nextTree.story,
+        healthStatus: nextTree.healthStatus,
+        ...(photos ? { photos } : {}),
+      });
+      trees.value = trees.value.map((tree) => (tree.id === updated.id ? updated : tree));
+      selectedTree.value = updated;
+      return;
+    } catch (error) {
+      console.warn("[api] 更新树木档案失败：", error?.message || error);
+    }
+  }
   trees.value = trees.value.map((tree) => (tree.id === nextTree.id ? nextTree : tree));
   selectedTree.value = nextTree;
 };
 
-const addTree = (treeData) => {
+const addTree = async (treeData) => {
+  if (!isMockMode()) {
+    try {
+      const siteId = treeData.siteId || currentUser.value?.organizationId;
+      const created = await createTree({ ...treeData, siteId }, trees.value);
+      trees.value = [...trees.value, created];
+      selectedTree.value = created;
+      return;
+    } catch (error) {
+      console.warn("[api] 新增树木失败：", error?.message || error);
+    }
+  }
   const customCode = String(treeData.code || treeData.id || "").trim();
   const nextCode = customCode || computeNextTreeCode(trees.value);
   const newTree = {
@@ -218,8 +293,8 @@ const addTree = (treeData) => {
     dbh: Number(treeData.dbh) || 0,
     longitude: Number(treeData.longitude) || 0,
     latitude: Number(treeData.latitude) || 0,
-    siteId: "site",
-    siteName: treeData.locationDescription || "",
+    siteId: treeData.siteId || "daxingshansi",
+    siteName: treeData.siteName || "大兴善寺",
     treeType: treeData.treeType,
     isAncient: treeData.treeType === "古树",
     protectionLevel: treeData.treeType === "古树" ? treeData.protectionLevel : null,
@@ -233,7 +308,20 @@ const addTree = (treeData) => {
   selectedTree.value = newTree;
 };
 
-const createWorkOrder = (order, { navigate = true } = {}) => {
+const createWorkOrder = async (order, { navigate = true } = {}) => {
+  if (!isMockMode() && !order.__alreadyCreated) {
+    try {
+      const created = await createWorkOrderRequest(order);
+      workOrders.value = [created, ...workOrders.value];
+      persistWorkOrders();
+      if (navigate && role.value !== "visitor") {
+        router.push("/workbench");
+      }
+      return;
+    } catch (error) {
+      console.warn("[api] 创建工单失败：", error?.message || error);
+    }
+  }
   workOrders.value = [order, ...workOrders.value];
   persistWorkOrders();
   if (navigate && role.value !== "visitor") {
@@ -250,15 +338,32 @@ const navigateToGuideWithOrder = (orderId) => {
   router.push(`/guide?pageMode=navigate&orderId=${orderId}`);
 };
 
-const createVisitorLead = (lead) => {
+const createVisitorLead = async (lead) => {
   visitorLeads.value = [lead, ...visitorLeads.value];
+  if (!isMockMode()) {
+    try {
+      const created = await createVisitorLeadRequest(lead);
+      visitorLeads.value = visitorLeads.value.map((item) =>
+        item.id === lead.id ? created : item
+      );
+    } catch (error) {
+      console.warn("[api] 提交游客线索失败：", error?.message || error);
+    }
+  }
 };
 
-const deleteVisitorLead = (leadId) => {
+const deleteVisitorLead = async (leadId) => {
   visitorLeads.value = visitorLeads.value.filter((lead) => lead.id !== leadId);
+  if (!isMockMode()) {
+    try {
+      await deleteVisitorLeadRequest(leadId);
+    } catch (error) {
+      console.warn("[api] 删除游客线索失败：", error?.message || error);
+    }
+  }
 };
 
-const addCheckIn = ({ treeId, treeCode, species, photoUrl }) => {
+const addCheckIn = async ({ treeId, treeCode, species, photoUrl }) => {
   const record = {
     id: `ci-${Date.now()}`,
     treeId,
@@ -270,20 +375,62 @@ const addCheckIn = ({ treeId, treeCode, species, photoUrl }) => {
     createdAt: new Date().toLocaleString("zh-CN", { hour12: false }),
   };
   checkInRecords.value = [record, ...checkInRecords.value];
-};
-
-const toggleLike = (checkInId) => {
-  checkInRecords.value = checkInRecords.value.map((r) => {
-    if (r.id !== checkInId) return r;
-    const idx = r.likedBy.indexOf(currentUserName.value);
-    if (idx >= 0) {
-      return { ...r, likedBy: r.likedBy.filter((u) => u !== currentUserName.value) };
+  if (!isMockMode()) {
+    try {
+      const created = await createCheckIn({
+        treeId,
+        treeCode,
+        species,
+        photoUrl,
+        userName: currentUserName.value,
+      });
+      checkInRecords.value = checkInRecords.value.map((item) =>
+        item.id === record.id ? created : item
+      );
+    } catch (error) {
+      console.warn("[api] 新增打卡失败：", error?.message || error);
     }
-    return { ...r, likedBy: [...r.likedBy, currentUserName.value] };
-  });
+  }
 };
 
-const convertVisitorLeadToWorkOrder = (lead) => {
+const toggleLike = async (checkInId) => {
+  const currentRecord = checkInRecords.value.find((r) => r.id === checkInId);
+  if (!currentRecord) return;
+
+  const userKey = currentUser.value?.id || currentUserName.value;
+  const liked = !(currentRecord.likedBy || []).includes(userKey);
+  const nextLikedBy = liked
+    ? [...currentRecord.likedBy, userKey]
+    : currentRecord.likedBy.filter((u) => u !== userKey);
+  checkInRecords.value = checkInRecords.value.map((r) =>
+    r.id === checkInId ? { ...r, likedBy: nextLikedBy, likeCount: nextLikedBy.length } : r
+  );
+
+  if (!isMockMode()) {
+    try {
+      const result = await toggleCheckInLike(checkInId, liked);
+      checkInRecords.value = checkInRecords.value.map((r) =>
+        r.id === checkInId
+          ? {
+              ...r,
+              likedBy:
+                typeof result.liked === "boolean"
+                  ? result.liked
+                    ? [...new Set([...r.likedBy, userKey])]
+                    : r.likedBy.filter((u) => u !== userKey)
+                  : r.likedBy,
+              likeCount:
+                typeof result.likeCount === "number" ? result.likeCount : r.likeCount,
+            }
+          : r
+      );
+    } catch (error) {
+      console.warn("[api] 点赞失败：", error?.message || error);
+    }
+  }
+};
+
+const convertVisitorLeadToWorkOrder = async (lead) => {
   const now = new Date().toLocaleString("zh-CN", { hour12: false });
   const order = {
     id: `wo-${Date.now()}`,
@@ -321,6 +468,30 @@ const convertVisitorLeadToWorkOrder = (lead) => {
       ? { ...item, status: "converted", convertedAt: now, convertedOrderId: order.id }
       : item
   );
+  if (!isMockMode()) {
+    try {
+      await updateVisitorLead(lead.id, {
+        issueType: lead.issueType,
+        issueDescription: lead.issueDescription,
+        locationDescription: lead.locationDescription,
+        healthStatus: lead.healthStatus || "healthy",
+      });
+      const converted = await convertVisitorLead(lead.id);
+      if (converted) {
+        const merged = { ...order, ...converted };
+        workOrders.value = workOrders.value
+          .filter((item) => item.id !== order.id)
+          .concat([merged]);
+        visitorLeads.value = visitorLeads.value.map((item) =>
+          item.id === lead.id
+            ? { ...item, convertedOrderId: converted.id }
+            : item
+        );
+      }
+    } catch (error) {
+      console.warn("[api] 游客线索转工单失败：", error?.message || error);
+    }
+  }
   selectedOrder.value = order;
   return order;
 };
@@ -341,7 +512,36 @@ const resetMapFilters = () => {
   healthFilter.value = "all";
 };
 
-const updateWorkOrder = (nextOrder) => {
+const updateWorkOrder = async (nextOrder) => {
+  if (!isMockMode()) {
+    const previous = workOrders.value.find((order) => order.id === nextOrder.id);
+    try {
+      let updated = nextOrder;
+      if (previous?.status === "processing" && nextOrder.status === "reviewing") {
+        updated = await processWorkOrder(previous.id, {
+          treatmentMeasures: nextOrder.treatmentMeasures,
+          treatmentPhotos: nextOrder.treatmentPhotos,
+        });
+      } else if (
+        previous?.status === "reviewing" &&
+        ["archived", "processing"].includes(nextOrder.status)
+      ) {
+        updated = await reviewWorkOrder(previous.id, {
+          passed: nextOrder.status === "archived",
+          reviewComment: nextOrder.reviewComment,
+          reviewHealthStatus: nextOrder.reviewHealthStatus,
+        });
+      }
+      workOrders.value = workOrders.value.map((order) =>
+        order.id === nextOrder.id ? updated : order
+      );
+      persistWorkOrders();
+      selectedOrder.value = updated;
+      return;
+    } catch (error) {
+      console.warn("[api] 更新工单失败：", error?.message || error);
+    }
+  }
   workOrders.value = workOrders.value.map((order) => (order.id === nextOrder.id ? nextOrder : order));
   persistWorkOrders();
   selectedOrder.value = nextOrder;
@@ -399,16 +599,22 @@ onUnmounted(() => {
   document.body.classList.remove("is-resizing-home-panel");
   if (onMouseMove) window.removeEventListener("mousemove", onMouseMove);
   if (onMouseUp) window.removeEventListener("mouseup", onMouseUp);
+  window.removeEventListener("xian:unauthorized", resetToLogin);
+});
+
+onMounted(() => {
+  window.addEventListener("xian:unauthorized", resetToLogin);
 });
 
 // ---- login handler ----
-const handleLogin = (user) => {
+const handleLogin = async (user) => {
   currentUser.value = user;
   role.value = user.role;
   organizationName.value = user.organizationName ?? "公众访问";
   currentUserName.value = user.username ?? user.account ?? roleLabels[user.role] ?? "游客";
   isAuthenticated.value = true;
   router.push(isMobileRoute.value ? "/mobile/map" : "/map");
+  await loadAppData();
 };
 
 const handleLogout = async () => {

@@ -16,24 +16,32 @@ function ecoValueOf(tree) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-// ss.jenks 在样本数小于分级数或数值全相等时返回 null，此时退回等间距分界。
+// ss.jenks 对“数值全相等”的样本不会返回 null，反而会在其内部索引越界并抛出
+// "Cannot read properties of undefined (reading '2')"；样本数小于分级数时才会返回 null。
+// 这里先处理这两种退化情况，再用 try/catch 兜底，统一退回等间距分界。
 export function getJenksBreaks(values, classCount = LEVEL_COUNT) {
   const sorted = [...values].sort((a, b) => a - b);
   if (sorted.length === 0) return Array(classCount + 1).fill(0);
 
-  const jenksResult = ss.jenks(sorted, classCount);
+  const min = sorted[0];
+  const max = sorted[sorted.length - 1];
+  if (min === max) {
+    return [min, ...Array(classCount - 1).fill(min), max];
+  }
+
+  let jenksResult;
+  try {
+    jenksResult = ss.jenks(sorted, classCount);
+  } catch {
+    jenksResult = null;
+  }
+
   if (
     Array.isArray(jenksResult) &&
     jenksResult.length === classCount + 1 &&
     new Set(jenksResult).size === classCount + 1
   ) {
     return jenksResult;
-  }
-
-  const min = sorted[0];
-  const max = sorted[sorted.length - 1];
-  if (min === max) {
-    return [min, ...Array(classCount - 1).fill(min), max];
   }
 
   const span = max - min;

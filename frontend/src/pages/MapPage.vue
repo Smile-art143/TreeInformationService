@@ -7,6 +7,8 @@ import FilterPanel from "../components/FilterPanel.vue";
 import StatsPanel from "../components/StatsPanel.vue";
 import { computeNextTreeCode, roleLabels } from "../api/mockApi";
 import { exportTreesAsShp } from "../api/shpExport";
+import { isMockMode } from "../api/http";
+import { exportTreesShp } from "../api/treesApi";
 
 const app = inject("appState");
 
@@ -54,9 +56,13 @@ const onHealthChange = (val) => setHealthFilter(val);
 const onReset = () => resetMapFilters();
 
 // ---- 导出树木点位 SHP ----
-const handleExportShp = () => {
+const handleExportShp = async () => {
   try {
-    exportTreesAsShp(trees.value);
+    if (!isMockMode()) {
+      await exportTreesShp();
+    } else {
+      exportTreesAsShp(trees.value);
+    }
     message.success("已导出树木点位 SHP 数据");
   } catch (error) {
     message.error(error.message || "导出失败");

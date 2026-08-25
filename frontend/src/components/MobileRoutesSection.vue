@@ -4,9 +4,14 @@ import { message } from "ant-design-vue";
 import { Camera, CheckCircle2, MapPin, Navigation, Route as RouteIcon, Trees, X } from "lucide-vue-next";
 import ArcGISTreeMap from "./ArcGISTreeMap.vue";
 import { bearingToText, calculateBearing, haversineDistance } from "../api/mockApi";
-import { isAmapKeyConfigured, planAmapWalkingRoute } from "../api/amap";
-import { photoSpots as allPhotoSpots } from "../data/photoSpots";
-import { findMatchedPark } from "../data/parkZones";
+import { planVisitorRoute } from "../api/routePlanner";
+import {
+  fetchPhotoSpots,
+  fetchSeasonalWindows,
+  fetchWindowTrees,
+  resolvePark,
+} from "../api/routesApi";
+import { getSeasonalRoutePreset } from "../data/seasonalRoutes";
 
 const app = inject("appState");
 const { trees, speciesColors } = app;
@@ -32,19 +37,11 @@ const isPlanningRoute = ref(false);
 const routeDurationSeconds = ref(0);
 const routePanelCollapsed = ref(false);
 const seasonalPickedPoints = ref([]);
-const isPickingSeasonalPoint = ref(false);
-const isPickingSeasonalDestination = ref(false);
+const routeSource = ref("straight");
 
-const windowTrees = computed(() => {
-  if (!matchedPark.value || !selectedWindow.value) return [];
-  return trees.value.filter(
-    (tree) => tree.siteName === matchedPark.value.siteName && selectedWindow.value.species.includes(tree.species)
-  );
-});
+const windowTrees = ref([]);
 const highlightedTreeIds = computed(() => windowTrees.value.map((tree) => tree.id));
-const photoSpotsForPark = computed(() =>
-  allPhotoSpots.filter((spot) => spot.siteName === matchedPark.value?.siteName)
-);
+const photoSpotsForPark = ref([]);
 const photoSpotsForMap = computed(() => (business.value === "photo" ? photoSpotsForPark.value : []));
 const selectedPhotoSpots = computed(() =>
   photoSpotsForPark.value.filter((spot) => selectedPhotoSpotIds.value.includes(spot.id))
@@ -60,7 +57,7 @@ const destination = computed(() => {
   }
   if (business.value === "seasonal") {
     const point = seasonalDestinationPoint.value;
-    return point ? { lat: point.lat, lng: point.lng, name: point.name || "自定义终点" } : null;
+    return point ? { lat: point.lat, lng: point.lng, name: point.name || "窗口终点" } : null;
   }
   return null;
 });
@@ -70,6 +67,11 @@ const routeDurationMinutes = computed(() =>
     ? Math.max(1, Math.round(routeDurationSeconds.value / 60))
     : Math.max(1, Math.round(routeTotalMeters.value / 80))
 );
+const routeSourceLabel = computed(() => {
+  if (routeSource.value === "gp") return "GP 路网步行路线 · 实时路径";
+  if (routeSource.value === "amap") return "高德步行路线 · 实时路径";
+  return "直线距离估算";
+});
 const businessTitle = computed(() => (business.value === "photo" ? "拍照机位路线" : "季节主题路线"));
 function openSeasonalRoute() {
   business.value = "seasonal";
@@ -93,14 +95,14 @@ function backToBusiness() {
 
 function resetRouteState() {
   selectedWindow.value = null;
+  windowTrees.value = [];
   selectedPhotoSpotIds.value = [];
   activeSpot.value = null;
   showPhotoSpotPicker.value = false;
   photoDestinationId.value = null;
   seasonalDestinationPoint.value = null;
+  seasonalPickedPoints.value = [];
   isPickingPosition.value = false;
-  isPickingSeasonalPoint.value = false;
-  isPickingSeasonalDestination.value = false;
   navigationActive.value = false;
   routeOrder.value = [];
   routeTotalMeters.value = 0;
@@ -108,6 +110,7 @@ function resetRouteState() {
   routeUsingAmap.value = false;
   isPlanningRoute.value = false;
   routeDurationSeconds.value = 0;
+  routeSource.value = "straight";
   clearMapOverlays();
 }
 
@@ -135,25 +138,27 @@ function locateVisitor() {
   );
 }
 
-function resolveMatchedPark() {
+async function resolveMatchedPark() {
   const pos = currentPosition.value;
-  const park = findMatchedPark(pos.lat, pos.lng);
+  const park = await resolvePark(pos.lng, pos.lat);
   matchedPark.value = park;
   resetRouteState();
   if (park) {
+    photoSpotsForPark.value = await fetchPhotoSpots(park.id);
+    const windows = await fetchSeasonalWindows(park.id);
+    matchedPark.value = { ...park, windows };
     message.success(`已识别${park.siteName}路线方案`);
   } else {
+    photoSpotsForPark.value = [];
     message.info("当前位置不在已开通路线的景区缓冲区内");
   }
 }
 
-function selectWindow(window) {
+async function selectWindow(window) {
   if (!matchedPark.value) return;
   selectedWindow.value = window;
-  seasonalPickedPoints.value = loadSeasonalPickedPoints(window.key);
-  seasonalDestinationPoint.value = loadSeasonalDestination(window.key);
-  isPickingSeasonalPoint.value = false;
-  isPickingSeasonalDestination.value = false;
+  const preset = getSeasonalRoutePreset(matchedPark.value.id, window.key);
+  seasonalPickedPoints.value = preset?.waypoints || [];
   navigationActive.value = false;
   routeOrder.value = [];
   routeTotalMeters.value = 0;
@@ -161,138 +166,25 @@ function selectWindow(window) {
   routeUsingAmap.value = false;
   routeDurationSeconds.value = 0;
   clearMapOverlays();
-  if (windowTrees.value.length === 0) {
-    message.warning("该观赏窗口暂无对应树木数据");
-    return;
-  }
-  const center = getCenter(windowTrees.value);
+  const data = await fetchWindowTrees(matchedPark.value.id, window.key);
+  windowTrees.value = data.trees || [];
+  seasonalDestinationPoint.value = preset?.destination
+    ? {
+        lat: preset.destination.latitude,
+        lng: preset.destination.longitude,
+        name: preset.destination.name,
+      }
+    : null;
+  const center = getCenter(seasonalPickedPoints.value.length ? seasonalPickedPoints.value : windowTrees.value);
   mapRef.value?.flyTo(center.lat, center.lng, 18);
-  message.success(`已高亮 ${windowTrees.value.length} 棵${window.label}树木`);
+  message.success(`已加载${window.label}路线预设`);
 }
 
 function clearMapOverlays() {
   mapRef.value?.clearCustomOverlays();
 }
 
-const SEASONAL_PICKED_STORAGE_KEY = "tree-service-seasonal-picked-points-v1";
-
-function loadSeasonalPickedPoints(windowKey) {
-  try {
-    const raw = localStorage.getItem(SEASONAL_PICKED_STORAGE_KEY);
-    const data = raw ? JSON.parse(raw) : {};
-    return Array.isArray(data[windowKey]) ? data[windowKey] : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveSeasonalPickedPoints(windowKey, points) {
-  try {
-    const raw = localStorage.getItem(SEASONAL_PICKED_STORAGE_KEY);
-    const data = raw ? JSON.parse(raw) : {};
-    data[windowKey] = points;
-    localStorage.setItem(SEASONAL_PICKED_STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    // localStorage 不可用时静默失败
-  }
-}
-
-const SEASONAL_DESTINATION_STORAGE_KEY = "tree-service-seasonal-destinations-v1";
-
-function loadSeasonalDestination(windowKey) {
-  try {
-    const raw = localStorage.getItem(SEASONAL_DESTINATION_STORAGE_KEY);
-    const data = raw ? JSON.parse(raw) : {};
-    return data[windowKey] || null;
-  } catch {
-    return null;
-  }
-}
-
-function saveSeasonalDestination(windowKey, point) {
-  try {
-    const raw = localStorage.getItem(SEASONAL_DESTINATION_STORAGE_KEY);
-    const data = raw ? JSON.parse(raw) : {};
-    if (point) {
-      data[windowKey] = point;
-    } else {
-      delete data[windowKey];
-    }
-    localStorage.setItem(SEASONAL_DESTINATION_STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    // localStorage 不可用时静默失败
-  }
-}
-
-function toggleSeasonalPointPick() {
-  isPickingSeasonalPoint.value = !isPickingSeasonalPoint.value;
-  isPickingPosition.value = false;
-  isPickingSeasonalDestination.value = false;
-  if (isPickingSeasonalPoint.value) {
-    message.info("请在地图上点击，添加自定义途经点");
-  }
-}
-
-function toggleSeasonalDestinationPick() {
-  isPickingSeasonalDestination.value = !isPickingSeasonalDestination.value;
-  isPickingPosition.value = false;
-  isPickingSeasonalPoint.value = false;
-  if (isPickingSeasonalDestination.value) {
-    message.info("请在地图上点击，定义该窗口终点");
-  }
-}
-
-function setSeasonalDestination(latitude, longitude) {
-  if (!selectedWindow.value) return;
-  const point = {
-    lat: Number(latitude),
-    lng: Number(longitude),
-    name: `自定义终点（${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)}）`,
-  };
-  seasonalDestinationPoint.value = point;
-  saveSeasonalDestination(selectedWindow.value.key, point);
-  isPickingSeasonalDestination.value = false;
-  redrawSeasonalOverlays();
-  message.success("已定义该窗口终点");
-}
-
-function clearSeasonalDestination() {
-  if (!selectedWindow.value) return;
-  seasonalDestinationPoint.value = null;
-  saveSeasonalDestination(selectedWindow.value.key, null);
-  redrawSeasonalOverlays();
-}
-
-function addSeasonalPickedPoint(latitude, longitude) {
-  if (!selectedWindow.value) return;
-  const point = {
-    id: `picked-${Date.now()}-${seasonalPickedPoints.value.length}`,
-    lat: Number(latitude),
-    lng: Number(longitude),
-    label: `自定义点${seasonalPickedPoints.value.length + 1}`,
-  };
-  seasonalPickedPoints.value = [...seasonalPickedPoints.value, point];
-  saveSeasonalPickedPoints(selectedWindow.value.key, seasonalPickedPoints.value);
-  redrawSeasonalOverlays();
-  message.success(`已添加 ${point.label}`);
-}
-
-function removeSeasonalPickedPoint(id) {
-  if (!selectedWindow.value) return;
-  seasonalPickedPoints.value = seasonalPickedPoints.value.filter((point) => point.id !== id);
-  saveSeasonalPickedPoints(selectedWindow.value.key, seasonalPickedPoints.value);
-  redrawSeasonalOverlays();
-}
-
-function clearSeasonalPickedPoints() {
-  if (!selectedWindow.value) return;
-  seasonalPickedPoints.value = [];
-  saveSeasonalPickedPoints(selectedWindow.value.key, []);
-  redrawSeasonalOverlays();
-  message.success("已清空自定义途经点");
-}
-
-function redrawSeasonalOverlays() {
+function redrawRouteOverlays() {
   const map = mapRef.value;
   if (!map) return;
   map.clearCustomOverlays();
@@ -300,9 +192,6 @@ function redrawSeasonalOverlays() {
   if (currentPosition.value) {
     routeNodes.push({ ...currentPosition.value, type: "start", label: "起" });
   }
-  seasonalPickedPoints.value.forEach((point, index) => {
-    routeNodes.push({ lat: point.lat, lng: point.lng, type: "waypoint", label: String(index + 1) });
-  });
   if (destination.value) {
     routeNodes.push({ ...destination.value, type: "destination", label: "终" });
   }
@@ -310,14 +199,6 @@ function redrawSeasonalOverlays() {
 }
 
 function handleMapClick({ latitude, longitude }) {
-  if (business.value === "seasonal" && isPickingSeasonalDestination.value) {
-    setSeasonalDestination(latitude, longitude);
-    return;
-  }
-  if (business.value === "seasonal" && isPickingSeasonalPoint.value) {
-    addSeasonalPickedPoint(latitude, longitude);
-    return;
-  }
   if (!isPickingPosition.value) return;
   currentPosition.value = { lat: latitude, lng: longitude };
   isPickingPosition.value = false;
@@ -326,10 +207,6 @@ function handleMapClick({ latitude, longitude }) {
 
 function handleTreeSelect(tree) {
   if (!tree) return;
-  if (isPickingSeasonalDestination.value) {
-    setSeasonalDestination(tree.latitude, tree.longitude);
-    return;
-  }
   if (!isPickingPosition.value) return;
   currentPosition.value = { lat: tree.latitude, lng: tree.longitude };
   isPickingPosition.value = false;
@@ -370,29 +247,17 @@ function chooseSpotDestination(spot) {
   if (!spot) return;
   if (photoDestinationId.value === spot.id) {
     photoDestinationId.value = null;
-    redrawSeasonalOverlays();
+    redrawRouteOverlays();
     return;
   }
   photoDestinationId.value = spot.id;
   selectedPhotoSpotIds.value = selectedPhotoSpotIds.value.filter((id) => id !== spot.id);
-  redrawSeasonalOverlays();
+  redrawRouteOverlays();
   message.success("终点已选择，可开始导航");
-}
-
-function clearDestination() {
-  if (business.value === "photo") {
-    photoDestinationId.value = null;
-  } else if (business.value === "seasonal") {
-    clearSeasonalDestination();
-  }
-  redrawSeasonalOverlays();
-  message.success("已清除终点");
 }
 
 function startMapPositionPick() {
   isPickingPosition.value = true;
-  isPickingSeasonalPoint.value = false;
-  isPickingSeasonalDestination.value = false;
   message.info("请在地图上点击选择当前位置");
 }
 
@@ -405,24 +270,27 @@ async function startNavigation() {
     return;
   }
   if (!destination.value) {
-    message.info(business.value === "seasonal" ? "请先定义该窗口终点" : "请先选择一个机位作为终点");
+    message.info(business.value === "seasonal" ? "该观赏窗口暂无可规划终点" : "请先选择一个机位作为终点");
     return;
   }
 
+  const seasonalPreset =
+    business.value === "seasonal"
+      ? getSeasonalRoutePreset(matchedPark.value.id, selectedWindow.value.key)
+      : null;
   let waypoints =
     business.value === "photo"
       ? selectedPhotoSpots.value.filter((spot) => spot.id !== photoDestinationId.value)
-      : windowTrees.value;
-  let usingPickedPoints = false;
-  if (business.value === "seasonal" && seasonalPickedPoints.value.length > 0) {
-    usingPickedPoints = true;
-    waypoints = seasonalPickedPoints.value.map((point) => ({
-      ...point,
-      latitude: point.lat,
-      longitude: point.lng,
-    }));
-  }
-  const ordered = planShortestPath(currentPosition.value, waypoints, destination.value);
+      : seasonalPreset?.waypoints || [];
+  const routeDestination =
+    business.value === "seasonal" && seasonalPreset?.destination
+      ? {
+          lat: seasonalPreset.destination.latitude,
+          lng: seasonalPreset.destination.longitude,
+          name: seasonalPreset.destination.name,
+        }
+      : destination.value;
+  const ordered = planShortestPath(currentPosition.value, waypoints, routeDestination);
   routeOrder.value = ordered;
   console.log(
     "规划路线途经点：",
@@ -439,41 +307,63 @@ async function startNavigation() {
     0
   );
   routeUsingAmap.value = false;
+  routeSource.value = "straight";
   amapPolylines.value = [];
   routeDurationSeconds.value = 0;
 
-  if (isAmapKeyConfigured()) {
-    isPlanningRoute.value = true;
-    try {
-      const result = await planAmapWalkingRoute(ordered);
-      amapPolylines.value = result.polylines;
-      routeUsingAmap.value = true;
-      routeTotalMeters.value = result.totalMeters;
-      routeDurationSeconds.value = result.totalSeconds;
-    } catch (error) {
-      message.warning("高德路线规划失败，已用直线距离估算");
-    } finally {
-      isPlanningRoute.value = false;
+  isPlanningRoute.value = true;
+  try {
+    const gpStops =
+      business.value === "photo"
+        ? selectedPhotoSpots.value
+            .filter((spot) => spot.id !== photoDestinationId.value)
+            .map((spot) => ({
+              ...spot,
+              stop_id: spot.id,
+              stop_name: spot.name,
+            }))
+        : [];
+    const result = await planVisitorRoute({
+      park: matchedPark.value.id,
+      scenario: business.value === "photo" ? "photo_route" : "season_route",
+      origin: currentPosition.value,
+      destination: destination.value,
+      stops: gpStops,
+      viewingWindowId:
+        business.value === "seasonal" ? selectedWindow.value.key : undefined,
+      orderedPoints: ordered,
+    });
+    routeSource.value = result.source;
+    routeUsingAmap.value = result.source === "amap";
+    routeTotalMeters.value = result.totalMeters;
+    routeDurationSeconds.value = result.durationSeconds;
+    amapPolylines.value = result.source === "straight" ? [] : result.polylines;
+    if (result.source === "gp" && business.value === "photo") {
+      routeOrder.value = applyGpStopOrder(ordered, result.orderedStops);
+    } else {
+      routeOrder.value = ordered;
     }
-  } else {
-    message.info("未配置高德 Key，已用直线距离估算");
+  } catch (error) {
+    routeSource.value = "straight";
+    amapPolylines.value = [];
+    message.warning("路线规划失败，已用直线距离估算");
+  } finally {
+    isPlanningRoute.value = false;
   }
 
   navigationActive.value = true;
   drawNavigationRoute();
-  message.success(
-    usingPickedPoints ? `已规划 ${waypoints.length} 个自定义途经点的路线` : `已规划 ${waypoints.length} 个途经点的路线`
-  );
+  message.success(`已规划 ${waypoints.length} 个途经点的路线`);
 }
 
 function planShortestPath(start, waypoints, end) {
   const remaining = waypoints.map((item) => ({
     lat: Number(item.latitude ?? item.lat),
     lng: Number(item.longitude ?? item.lng),
-    label: item.label || (item.code ? `${item.code} / ${item.name || item.species}` : "途经点"),
-    id: item.id || item.treeId,
+    label: item.label || item.name || (item.code ? `${item.code} / ${item.name || item.species}` : "途经点"),
+    id: item.id || item.treeId || "waypoint",
   }));
-  const ordered = [{ ...start, label: "当前位置", type: "start" }];
+  const ordered = [{ ...start, id: "origin", label: "当前位置", type: "start" }];
   let current = start;
 
   while (remaining.length) {
@@ -491,9 +381,24 @@ function planShortestPath(start, waypoints, end) {
     current = next;
   }
 
-  ordered.push({ ...end, label: end.name || "终点", type: "destination" });
+  ordered.push({ ...end, id: end.id || "dest", label: end.name || "终点", type: "destination" });
   optimizeTwoOpt(ordered);
   return ordered;
+}
+
+function applyGpStopOrder(ordered, orderedStops) {
+  if (!Array.isArray(orderedStops) || orderedStops.length < 2) return ordered;
+  const byId = new Map(ordered.map((point) => [point.id, point]));
+  const result = [];
+  orderedStops.forEach((stop) => {
+    const id = stop.stop_id ?? stop.stopId;
+    const point = byId.get(id) || (id === "origin" ? ordered[0] : id === "dest" ? ordered[ordered.length - 1] : null);
+    if (point && !result.includes(point)) result.push(point);
+  });
+  ordered.forEach((point) => {
+    if (!result.includes(point)) result.push(point);
+  });
+  return result.length >= 2 ? result : ordered;
 }
 
 function optimizeTwoOpt(points) {
@@ -534,7 +439,7 @@ function drawNavigationRoute() {
   if (!map || routeOrder.value.length === 0) return;
   map.clearCustomOverlays();
 
-  if (routeUsingAmap.value && amapPolylines.value.length > 0) {
+  if (routeSource.value !== "straight" && amapPolylines.value.length > 0) {
     amapPolylines.value.forEach((polyline) => map.showRoutePolyline(polyline));
   } else {
     for (let i = 0; i < routeOrder.value.length - 1; i++) {
@@ -560,6 +465,7 @@ function endNavigation() {
   routeTotalMeters.value = 0;
   amapPolylines.value = [];
   routeUsingAmap.value = false;
+  routeSource.value = "straight";
   routeDurationSeconds.value = 0;
   clearMapOverlays();
   if (business.value === "photo" && selectedPhotoSpots.value.length) {
@@ -695,53 +601,6 @@ function getCenter(points) {
                 <span>{{ selectedWindow.label }} · {{ windowTrees.length }} 棵树木</span>
                 <strong>{{ selectedWindow.species.join(" / ") }}</strong>
               </div>
-              <div class="mobile-route-picked-block">
-                <div class="mobile-info-row">
-                  <span>自定义途经点</span>
-                  <strong>{{ seasonalPickedPoints.length }} 个</strong>
-                </div>
-                <div class="mobile-action-row">
-                  <a-button
-                    size="small"
-                    :type="isPickingSeasonalPoint ? 'primary' : 'default'"
-                    @click="toggleSeasonalPointPick"
-                  >
-                    <MapPin :size="13" />地图选点
-                  </a-button>
-                  <a-button size="small" danger :disabled="seasonalPickedPoints.length === 0" @click="clearSeasonalPickedPoints">
-                    <X :size="13" />清空
-                  </a-button>
-                </div>
-                <p v-if="isPickingSeasonalPoint" class="mobile-route-hint">点击地图添加自定义途经点</p>
-                <div v-if="seasonalPickedPoints.length" class="mobile-route-tree-picks">
-                  <button
-                    v-for="point in seasonalPickedPoints"
-                    :key="point.id"
-                    type="button"
-                    @click="removeSeasonalPickedPoint(point.id)"
-                  >
-                    <span><strong>{{ point.label }}</strong>{{ point.lat.toFixed(5) }}, {{ point.lng.toFixed(5) }}</span>
-                    <em>移除</em>
-                  </button>
-                </div>
-              </div>
-              <div class="mobile-action-row">
-                <a-button
-                  size="small"
-                  :type="isPickingSeasonalDestination ? 'primary' : 'default'"
-                  @click="toggleSeasonalDestinationPick"
-                >
-                  <MapPin :size="13" />定义终点
-                </a-button>
-                <a-button class="mobile-danger-outline" size="small" :disabled="!seasonalDestinationPoint" @click="clearSeasonalDestination">
-                  <X :size="13" />清除终点
-                </a-button>
-              </div>
-              <p v-if="isPickingSeasonalDestination" class="mobile-route-hint">点击地图定义该窗口终点</p>
-              <div v-if="seasonalDestinationPoint" class="mobile-info-row">
-                <span>已定义终点</span>
-                <strong>{{ seasonalDestinationPoint.lat.toFixed(5) }}, {{ seasonalDestinationPoint.lng.toFixed(5) }}</strong>
-              </div>
             </template>
           </template>
 
@@ -791,7 +650,7 @@ function getCenter(points) {
               <div><strong>{{ routeOrder.length - 2 }}</strong><span>途经点</span></div>
             </div>
             <p class="mobile-route-hint" style="text-align:center;margin-top:8px;">
-              {{ routeUsingAmap ? "高德步行路线 · 实时路径" : "直线距离估算（未配置高德 Key）" }}
+              {{ routeSourceLabel }}
             </p>
 
             <div class="mobile-route-steps">

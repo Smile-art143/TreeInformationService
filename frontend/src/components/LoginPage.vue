@@ -43,14 +43,14 @@ const orgOptions = organizations.filter((item) => item.value !== "public");
 
 const loginForm = ref({
   account: props.mobile ? "inspector" : "admin",
-  password: props.mobile ? "123456" : "admin123",
+  password: props.mobile ? "123456" : "123456",
   role: props.mobile && props.initialRole !== "admin" ? props.initialRole : props.mobile ? "inspector" : "admin",
 });
 
 watch(() => props.mobile, (mobile) => {
   loginForm.value = mobile
     ? { account: "inspector", password: "123456", role: "inspector" }
-    : { account: "admin", password: "admin123", role: "admin" };
+    : { account: "admin", password: "123456", role: "admin" };
 }, { immediate: true });
 
 const registerForm = ref({
@@ -186,7 +186,7 @@ const submitRegister = async () => {
               </a-input>
             </a-form-item>
             <a-form-item label="密码" required>
-              <a-input-password v-model:value="loginForm.password" :placeholder="mobile ? '默认密码 123456' : '管理员密码 admin123'">
+              <a-input-password v-model:value="loginForm.password" :placeholder="mobile ? '默认密码 123456' : '管理员密码 123456'">
                 <template #prefix><LockKeyhole :size="15" /></template>
               </a-input-password>
             </a-form-item>
@@ -256,7 +256,7 @@ const submitRegister = async () => {
               type="warning"
               show-icon
               message="内部角色注册后需审核"
-              description="注册后会标注待审核；审核期间仍可使用该账号查看平台功能。"
+              description="注册后会标注待审核；审核期间可使用“快速登录”下的账号登录并查看平台功能。"
             />
             <a-button class="submit-report" type="primary" size="large" html-type="submit" :loading="isSubmitting" @click="submitRegister">
               提交注册

@@ -1,4 +1,5 @@
 import rawTrees from "../data/trees.json";
+import { isMockMode } from "./http";
 
 export const trees = rawTrees;
 
@@ -123,12 +124,28 @@ export function haversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 export function fetchNearbyTreesMock(trees, lat, lon, radiusM) {
+  if (!isMockMode()) {
+    return fetchNearbyTreesWithBackend(trees, lat, lon, radiusM);
+  }
   return new Promise((resolve) => {
     const delay = 300 + Math.random() * 500;
     setTimeout(() => {
       resolve(findNearbyTrees(trees, lat, lon, radiusM));
     }, delay);
   });
+}
+
+// 真实接口优先：非 mock 模式下，周边查询改走后端 /api/trees/nearby。
+// 函数名保持不变，页面无需感知数据源切换。
+export async function fetchNearbyTreesWithBackend(trees, lat, lon, radiusM) {
+  const { fetchNearbyTrees } = await import("./treesApi");
+  const data = await fetchNearbyTrees({
+    latitude: lat,
+    longitude: lon,
+    radius: radiusM,
+    pageSize: 50,
+  });
+  return data.list;
 }
 
 export function findNearbyTrees(trees, lat, lon, radiusM) {
@@ -264,6 +281,60 @@ export function createInitialWorkOrders(list) {
     };
   });
 }
+
+// 打卡墙的离线演示数据：真实模式登录后由 GET /api/check-ins 覆盖。
+export const mockCheckInRecords = [
+  {
+    id: "ci-demo-1",
+    treeId: "DX-1",
+    treeCode: "DX-1",
+    species: "松树",
+    photoUrl: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=400&q=80",
+    userName: "游客",
+    likedBy: ["游客", "巡检员小王"],
+    createdAt: "2026/8/5 14:30:00",
+  },
+  {
+    id: "ci-demo-2",
+    treeId: "DX-2",
+    treeCode: "DX-2",
+    species: "侧柏",
+    photoUrl: "https://images.unsplash.com/photo-1502082553048-f009c37129b9?auto=format&fit=crop&w=400&q=80",
+    userName: "游客",
+    likedBy: ["游客"],
+    createdAt: "2026/8/4 09:15:00",
+  },
+  {
+    id: "ci-demo-3",
+    treeId: "DX-1",
+    treeCode: "DX-1",
+    species: "松树",
+    photoUrl: "https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?auto=format&fit=crop&w=400&q=80",
+    userName: "巡检员小王",
+    likedBy: ["游客", "养护老李", "巡检员小王"],
+    createdAt: "2026/8/3 16:45:00",
+  },
+  {
+    id: "ci-demo-4",
+    treeId: "DX-2",
+    treeCode: "DX-2",
+    species: "侧柏",
+    photoUrl: "https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?auto=format&fit=crop&w=400&q=80",
+    userName: "养护老李",
+    likedBy: [],
+    createdAt: "2026/8/2 11:00:00",
+  },
+  {
+    id: "ci-demo-5",
+    treeId: "DX-1",
+    treeCode: "DX-1",
+    species: "松树",
+    photoUrl: "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=400&q=80",
+    userName: "游客",
+    likedBy: ["养护老李"],
+    createdAt: "2026/8/1 08:20:00",
+  },
+];
 
 export function createInitialVisitorLeads(list) {
   return list

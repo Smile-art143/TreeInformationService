@@ -1,10 +1,12 @@
 <script setup>
+import { computed } from "vue";
 import VChart from "vue-echarts";
 import { use } from "echarts/core";
 import { PieChart, BarChart } from "echarts/charts";
 import { TooltipComponent, GridComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import { BarChart3, Leaf, Sprout, Waves } from "lucide-vue-next";
+import { otherSpeciesColor } from "../api/mockApi";
 
 use([PieChart, BarChart, TooltipComponent, GridComponent, CanvasRenderer]);
 
@@ -12,19 +14,37 @@ const props = defineProps({
   stats: { type: Object, required: true },
 });
 
-const speciesOption = {
-  tooltip: { trigger: "item" },
-  series: [
-    {
-      type: "pie",
-      radius: ["44%", "70%"],
-      data: props.stats.speciesRatio.slice(0, 8).map((item) => ({
-        name: item.species,
-        value: item.count,
-      })),
-    },
-  ],
-};
+const TOP_SPECIES_COUNT = 7;
+
+const speciesOption = computed(() => {
+  const ratio = props.stats.speciesRatio ?? [];
+  const data = ratio.slice(0, TOP_SPECIES_COUNT).map((item) => ({
+    name: item.species,
+    value: item.count,
+  }));
+  const otherCount = ratio
+    .slice(TOP_SPECIES_COUNT)
+    .reduce((sum, item) => sum + item.count, 0);
+
+  if (otherCount > 0) {
+    data.push({
+      name: "其他树种",
+      value: otherCount,
+      itemStyle: { color: otherSpeciesColor },
+    });
+  }
+
+  return {
+    tooltip: { trigger: "item" },
+    series: [
+      {
+        type: "pie",
+        radius: ["44%", "70%"],
+        data,
+      },
+    ],
+  };
+});
 
 const dbhOption = {
   tooltip: { trigger: "axis" },

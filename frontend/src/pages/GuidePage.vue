@@ -6,6 +6,7 @@ import { message } from "ant-design-vue";
 import ArcGISTreeMap from "../components/ArcGISTreeMap.vue";
 import GuideSection from "../components/GuideSection.vue";
 import CreateWorkOrderModal from "../components/CreateWorkOrderModal.vue";
+import { planTreeTaskRoute } from "../api/routePlanner";
 import {
   fetchNearbyTreesMock, haversineDistance, calculateBearing, bearingToText,
   getPendingOrdersForRole, healthLabels, healthOptions, issueTypes,
@@ -57,6 +58,11 @@ let distanceMonitor = null;
 const guideTreatmentForm = ref({ treatmentMeasures: "" });
 const guideTreatmentPhotos = ref([]);
 const guideReviewForm = ref({ reviewComment: "", healthStatus: "warning" });
+const guideRoutePolyline = ref([]);
+const guideRouteSource = ref("straight");
+const guideRoutePlanning = ref(false);
+const guideRouteMeters = ref(0);
+const guideRouteMinutes = ref(0);
 
 function updateMapOverlays() {
   const map = mapRef.value;
@@ -148,10 +154,14 @@ function updateNavigateMapOverlays() {
       targetTree.value.latitude, targetTree.value.longitude,
       statusType, targetTree.value.dbh
     );
-    map.showNavigationLine(
-      virtualPosition.lat, virtualPosition.lng,
-      targetTree.value.latitude, targetTree.value.longitude
-    );
+    if (guideRouteSource.value !== "straight" && guideRoutePolyline.value.length > 1) {
+      map.showRoutePolyline(guideRoutePolyline.value);
+    } else {
+      map.showNavigationLine(
+        virtualPosition.lat, virtualPosition.lng,
+        targetTree.value.latitude, targetTree.value.longitude
+      );
+    }
   }
 }
 
@@ -165,16 +175,42 @@ function selectOrderInList(order) {
 }
 
 // ---- single-tree navigation ----
-function startNavigate(order) {
+async function startNavigate(order) {
   const tree = trees.value.find((t) => t.id === order.treeId);
   if (!tree) return;
   targetOrder.value = order;
   targetTree.value = tree;
   highlightedOrderId.value = order.id;
   navSubMode.value = "guiding";
+  guideRoutePolyline.value = [];
+  guideRouteSource.value = "straight";
+  guideRouteMeters.value = 0;
+  guideRouteMinutes.value = 0;
   updateGuidingHUD();
   updateNavigateMapOverlays();
   startDistanceMonitor();
+
+  guideRoutePlanning.value = true;
+  try {
+    const result = await planTreeTaskRoute({
+      origin: virtualPosition,
+      destination: tree,
+      park: tree.siteId,
+    });
+    guideRoutePolyline.value = result.polyline;
+    guideRouteSource.value = result.source;
+    guideRouteMeters.value = result.totalMeters || 0;
+    guideRouteMinutes.value = Math.max(1, Math.round((result.durationSeconds || 0) / 60));
+    if (result.source !== "straight") {
+      updateNavigateMapOverlays();
+    }
+  } catch (error) {
+    guideRouteSource.value = "straight";
+    guideRoutePolyline.value = [];
+    console.warn("[route] Guide 工单导航失败：", error?.message || error);
+  } finally {
+    guideRoutePlanning.value = false;
+  }
 }
 
 function updateGuidingHUD() {
@@ -206,6 +242,10 @@ function exitGuiding() {
   navSubMode.value = "batch";
   targetOrder.value = null;
   targetTree.value = null;
+  guideRoutePolyline.value = [];
+  guideRouteSource.value = "straight";
+  guideRouteMeters.value = 0;
+  guideRouteMinutes.value = 0;
   updateNavigateMapOverlays();
   message.success("已到达目标树木附近（<10米），请进行现场核验");
 }
@@ -215,6 +255,10 @@ function cancelNavigate() {
   navSubMode.value = "batch";
   targetOrder.value = null;
   targetTree.value = null;
+  guideRoutePolyline.value = [];
+  guideRouteSource.value = "straight";
+  guideRouteMeters.value = 0;
+  guideRouteMinutes.value = 0;
   updateNavigateMapOverlays();
   message.info("已退出导航");
 }
@@ -609,6 +653,10 @@ const rankMedals = { 1: "#FFD700", 2: "#C0C0C0", 3: "#CD7F32" };
               <br />{{ targetOrder?.orderNo }}
             </div>
             <div class="nav-distance">{{ guidingDistance }}<small style="font-size:16px;"> 米</small></div>
+            <div v-if="guideRouteSource !== 'straight'" class="nav-bearing">
+              <Navigation :size="16" style="vertical-align:middle;margin-right:4px;" />
+              路网 {{ Math.round(guideRouteMeters).toLocaleString() }} 米 · 约 {{ guideRouteMinutes }} 分钟
+            </div>
             <div class="nav-bearing">
               <Navigation :size="16" style="vertical-align:middle;margin-right:4px;" />
               方向：{{ guidingBearing }}

@@ -2,7 +2,7 @@
 import { computed, inject, ref } from "vue";
 import { Camera, Heart, MapPin, Navigation, Sparkles } from "lucide-vue-next";
 import { message } from "ant-design-vue";
-import { findNearbyTrees } from "../api/mockApi";
+import { fetchNearbyTreesMock } from "../api/mockApi";
 
 const props = defineProps({
   trees: { type: Array, default: () => [] },
@@ -32,9 +32,9 @@ const locateNearbyTrees = () => {
     return;
   }
   navigator.geolocation.getCurrentPosition(
-    (pos) => {
+    async (pos) => {
       const { latitude, longitude } = pos.coords;
-      nearbyTrees.value = findNearbyTrees(props.trees, latitude, longitude, 10);
+      nearbyTrees.value = await fetchNearbyTreesMock(props.trees, latitude, longitude, 10);
       isLocating.value = false;
       if (nearbyTrees.value.length === 0) {
         message.info("您周边10米内暂无树木");
