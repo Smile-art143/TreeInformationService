@@ -108,6 +108,6 @@ export async function planRoute(payload) {
     async () => {
       return request("post", "/api/routes/plan", { data: payload });
     },
-    () => ({ points: payload?.points || [] })
+    () => ({ planId: "", totalDistance: 0, estimatedMinutes: 0, points: [], polyline: [] })
   );
 }

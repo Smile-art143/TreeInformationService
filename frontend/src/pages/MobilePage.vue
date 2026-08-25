@@ -109,7 +109,6 @@ const isPickingGuideAnchorOnMap = ref(false);
 const orderRoutePolyline = ref([]);
 const orderRouteMeters = ref(0);
 const orderRouteDuration = ref(0);
-const orderRouteUsingAmap = ref(false);
 const orderRouteSource = ref("straight");
 const orderRoutePlanning = ref(false);
 
@@ -778,7 +777,6 @@ function clearOrderRoute() {
   orderRoutePolyline.value = [];
   orderRouteMeters.value = 0;
   orderRouteDuration.value = 0;
-  orderRouteUsingAmap.value = false;
   orderRouteSource.value = "straight";
   mobileMapRef.value?.clearCustomOverlays();
 }
@@ -811,7 +809,6 @@ async function planOrderRoute() {
     orderRouteMeters.value = result.totalMeters;
     orderRouteDuration.value = result.durationSeconds;
     orderRouteSource.value = result.source;
-    orderRouteUsingAmap.value = result.source === "amap";
     if (result.source === "straight") {
       map?.showNavigationLine(
         currentLocation.value.lat, currentLocation.value.lng,
@@ -1109,7 +1106,7 @@ function submitReview(passed) {
         <div v-if="orderRouteMeters > 0" class="mobile-info-row">
           <span>路线</span>
           <strong>
-            {{ orderRouteSource === 'gp' ? 'GP路网' : orderRouteSource === 'amap' ? '高德步行' : '步行' }}
+            {{ orderRouteSource === 'local' ? '步行' : '直线示意' }}
             {{ orderRouteMeters >= 1000 ? (orderRouteMeters / 1000).toFixed(1) + 'km' : Math.round(orderRouteMeters) + 'm' }}
             · 约 {{ orderRouteDurationMinutes }} 分钟
           </strong>

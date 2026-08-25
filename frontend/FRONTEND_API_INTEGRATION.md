@@ -49,25 +49,13 @@ window.__XIAN_API_CONFIG__ = { baseURL: "http://localhost:8000", useMock: false 
 
 页面组件保留原有函数名与调用方式；数据源替换集中在 `src/App.vue` 的根状态动作和上述 API 封装内。
 
-### GeoScene GP 路径规划
+### 本地路网路径规划
 
-`src/api/gpRoute.js` 已按 `ParkRoutePlanning.pyt` 的契约封装异步 GP 调用：
+路径规划已改为纯前端本地计算，不再依赖 GeoScene GP 或高德 API：
 
-统一路由层 `src/api/routePlanner.js` 已接入三个入口：工单导航 `tree_task`、拍照机位路线 `photo_route`、季节主题路线 `season_route`，执行顺序固定为 **GP 优先 -> 高德步行 -> 本地直线**。
-
-1. `submitGpRouteJob`：POST `submitJob`，表单字段 `park/scenario/origin/destination/stops/viewing_window_id/snap_tolerance_m/env:outSR`。
-2. 轮询 `jobs/{jobId}` 的 `jobStatus`，支持进度回调与超时。
-3. 成功后拉取 `route/total_meters/estimated_minutes/ordered_stops/status`，统一转成前端坐标数组、米、分钟和停靠顺序。
-
-调用前只需配置：
-
-```bash
-VITE_GP_ROUTE_URL=https://<geoscene-host>/server/rest/services/Parks/ParkRoutePlanning/GPServer/ParkRoutePlanning
-VITE_GP_ROUTE_POLL_INTERVAL_MS=1200
-VITE_GP_ROUTE_TIMEOUT_MS=30000
-```
-
-坐标统一传 EPSG:4490；`park` 使用 `daxingshan/cien`，`scenario` 使用 `tree_task/photo_route/season_route`。`season_route` 必须传 `viewing_window_id`（脚本当前内置 `3-4/6-7/7-8/9-10/10-11`）。
+- `src/api/localRoute.js`：基于 `geojson-path-finder`，加载 `public/road_dx.geojson` / `public/road_dc.geojson` 本地路网，执行最短路径计算。
+- `src/api/routePlanner.js`：统一路由层，工单导航、拍照机位路线、季节主题路线均走本地路网，路网不可达时降级为 Haversine 直线距离。
+- 起终点会按容差吸附到本地路网，返回路径坐标、总米数和预计步行时间。
 
 ### 树木数据要素服务
 

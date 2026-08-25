@@ -554,7 +554,7 @@ defineExpose({
         cap: "round",
         join: "round",
       }),
-      attributes: { type: "amap-route" },
+      attributes: { type: "local-route" },
     }));
   },
 });

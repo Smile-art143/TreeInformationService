@@ -31,8 +31,7 @@ const seasonalDestinationPoint = ref(null);
 const navigationActive = ref(false);
 const routeOrder = ref([]);
 const routeTotalMeters = ref(0);
-const amapPolylines = ref([]);
-const routeUsingAmap = ref(false);
+const routePolylines = ref([]);
 const isPlanningRoute = ref(false);
 const routeDurationSeconds = ref(0);
 const routePanelCollapsed = ref(false);
@@ -68,8 +67,7 @@ const routeDurationMinutes = computed(() =>
     : Math.max(1, Math.round(routeTotalMeters.value / 80))
 );
 const routeSourceLabel = computed(() => {
-  if (routeSource.value === "gp") return "GP 路网步行路线 · 实时路径";
-  if (routeSource.value === "amap") return "高德步行路线 · 实时路径";
+  if (routeSource.value === "local") return "本地路网步行路线 · 实时路径";
   return "直线距离估算";
 });
 const businessTitle = computed(() => (business.value === "photo" ? "拍照机位路线" : "季节主题路线"));
@@ -106,8 +104,7 @@ function resetRouteState() {
   navigationActive.value = false;
   routeOrder.value = [];
   routeTotalMeters.value = 0;
-  amapPolylines.value = [];
-  routeUsingAmap.value = false;
+  routePolylines.value = [];
   isPlanningRoute.value = false;
   routeDurationSeconds.value = 0;
   routeSource.value = "straight";
@@ -162,8 +159,7 @@ async function selectWindow(window) {
   navigationActive.value = false;
   routeOrder.value = [];
   routeTotalMeters.value = 0;
-  amapPolylines.value = [];
-  routeUsingAmap.value = false;
+  routePolylines.value = [];
   routeDurationSeconds.value = 0;
   clearMapOverlays();
   const data = await fetchWindowTrees(matchedPark.value.id, window.key);
@@ -306,14 +302,13 @@ async function startNavigation() {
       sum + haversineDistance(point.lat, point.lng, ordered[index + 1].lat, ordered[index + 1].lng),
     0
   );
-  routeUsingAmap.value = false;
   routeSource.value = "straight";
-  amapPolylines.value = [];
+  routePolylines.value = [];
   routeDurationSeconds.value = 0;
 
   isPlanningRoute.value = true;
   try {
-    const gpStops =
+    const photoStops =
       business.value === "photo"
         ? selectedPhotoSpots.value
             .filter((spot) => spot.id !== photoDestinationId.value)
@@ -328,24 +323,19 @@ async function startNavigation() {
       scenario: business.value === "photo" ? "photo_route" : "season_route",
       origin: currentPosition.value,
       destination: destination.value,
-      stops: gpStops,
+      stops: photoStops,
       viewingWindowId:
         business.value === "seasonal" ? selectedWindow.value.key : undefined,
       orderedPoints: ordered,
     });
     routeSource.value = result.source;
-    routeUsingAmap.value = result.source === "amap";
     routeTotalMeters.value = result.totalMeters;
     routeDurationSeconds.value = result.durationSeconds;
-    amapPolylines.value = result.source === "straight" ? [] : result.polylines;
-    if (result.source === "gp" && business.value === "photo") {
-      routeOrder.value = applyGpStopOrder(ordered, result.orderedStops);
-    } else {
-      routeOrder.value = ordered;
-    }
+    routePolylines.value = result.source === "straight" ? [] : result.polylines;
+    routeOrder.value = ordered;
   } catch (error) {
     routeSource.value = "straight";
-    amapPolylines.value = [];
+    routePolylines.value = [];
     message.warning("路线规划失败，已用直线距离估算");
   } finally {
     isPlanningRoute.value = false;
@@ -386,21 +376,6 @@ function planShortestPath(start, waypoints, end) {
   return ordered;
 }
 
-function applyGpStopOrder(ordered, orderedStops) {
-  if (!Array.isArray(orderedStops) || orderedStops.length < 2) return ordered;
-  const byId = new Map(ordered.map((point) => [point.id, point]));
-  const result = [];
-  orderedStops.forEach((stop) => {
-    const id = stop.stop_id ?? stop.stopId;
-    const point = byId.get(id) || (id === "origin" ? ordered[0] : id === "dest" ? ordered[ordered.length - 1] : null);
-    if (point && !result.includes(point)) result.push(point);
-  });
-  ordered.forEach((point) => {
-    if (!result.includes(point)) result.push(point);
-  });
-  return result.length >= 2 ? result : ordered;
-}
-
 function optimizeTwoOpt(points) {
   let improved = true;
   while (improved) {
@@ -439,8 +414,8 @@ function drawNavigationRoute() {
   if (!map || routeOrder.value.length === 0) return;
   map.clearCustomOverlays();
 
-  if (routeSource.value !== "straight" && amapPolylines.value.length > 0) {
-    amapPolylines.value.forEach((polyline) => map.showRoutePolyline(polyline));
+  if (routeSource.value !== "straight" && routePolylines.value.length > 0) {
+    routePolylines.value.forEach((polyline) => map.showRoutePolyline(polyline));
   } else {
     for (let i = 0; i < routeOrder.value.length - 1; i++) {
       const from = routeOrder.value[i];
@@ -463,8 +438,7 @@ function endNavigation() {
   navigationActive.value = false;
   routeOrder.value = [];
   routeTotalMeters.value = 0;
-  amapPolylines.value = [];
-  routeUsingAmap.value = false;
+  routePolylines.value = [];
   routeSource.value = "straight";
   routeDurationSeconds.value = 0;
   clearMapOverlays();
